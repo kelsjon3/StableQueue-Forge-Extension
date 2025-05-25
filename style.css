@@ -1,0 +1,47 @@
+/* StableQueue Forge Extension Styles */
+
+/* Queue button styling */
+#txt2img_queue_stablequeue, #img2img_queue_stablequeue {
+    background-color: #3498db;
+    color: white;
+}
+
+#txt2img_bulk_queue_stablequeue, #img2img_bulk_queue_stablequeue {
+    background-color: #2980b9;
+    color: white;
+}
+
+/* Status message styling */
+.stablequeue-success {
+    color: #27ae60;
+    font-weight: bold;
+}
+
+.stablequeue-error {
+    color: #e74c3c;
+    font-weight: bold;
+}
+
+/* Settings panel styling */
+.stablequeue-settings-header {
+    font-weight: bold;
+    margin-top: 10px;
+    margin-bottom: 5px;
+}
+
+/* Progress indicator styling */
+.stablequeue-progress-container {
+    width: 100%;
+    height: 20px;
+    background-color: #ecf0f1;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
+
+.stablequeue-progress-bar {
+    height: 100%;
+    background-color: #3498db;
+    transition: width 0.3s ease-in-out;
+} 
