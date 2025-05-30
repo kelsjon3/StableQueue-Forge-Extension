@@ -83,16 +83,27 @@ queueBtn.addEventListener('click', async (e) => {
         window.stablequeue_send_single = function(params) {
             const data = JSON.parse(JSON.stringify(params));
             
-            // Get the selected server from the StableQueue tab
-            const serverDropdown = document.querySelector('#stablequeue select');
-            if (!serverDropdown || serverDropdown.options.length === 0 || !serverDropdown.value) {
-                params.notification = { text: `No server selected in StableQueue tab. Please select a server first.`, type: 'error' };
+            const serverDropdown = document.querySelector('#stablequeue_server_dropdown');
+
+            if (!serverDropdown) {
+                params.notification = { text: `Server dropdown not found. UI might not be loaded.`, type: 'error' };
+                console.error(`[${EXTENSION_NAME}] ContextMenu: Server dropdown (#stablequeue_server_dropdown) not found.`);
                 return params;
             }
             
             const serverAlias = serverDropdown.value;
+            const selectedOptionText = serverDropdown.options[serverDropdown.selectedIndex]?.text;
+
+            if (!serverAlias || serverAlias.trim() === "") {
+                if (serverDropdown.options.length > 0 && selectedOptionText === "Configure API key in settings") {
+                    params.notification = { text: `Please configure API credentials in Settings → StableQueue Integration`, type: 'error' };
+                    return params;
+                }
+                params.notification = { text: `No server selected or invalid server value. Value: "${serverAlias}". Selected: "${selectedOptionText}"`, type: 'error' };
+                console.error(`[${EXTENSION_NAME}] ContextMenu: No server selected. Value: "${serverAlias}", Options: ${serverDropdown.options.length}, Selected Text: "${selectedOptionText}"`);
+                return params;
+            }
             
-            // Check if it's the placeholder option
             if (serverAlias === "Configure API key in settings") {
                 params.notification = { text: `Please configure API credentials in Settings → StableQueue Integration`, type: 'error' };
                 return params;
@@ -139,16 +150,27 @@ queueBtn.addEventListener('click', async (e) => {
         window.stablequeue_send_bulk = function(params) {
             const data = JSON.parse(JSON.stringify(params));
             
-            // Get the selected server from the StableQueue tab
-            const serverDropdown = document.querySelector('#stablequeue select');
-            if (!serverDropdown || serverDropdown.options.length === 0 || !serverDropdown.value) {
-                params.notification = { text: `No server selected in StableQueue tab. Please select a server first.`, type: 'error' };
+            const serverDropdown = document.querySelector('#stablequeue_server_dropdown');
+
+            if (!serverDropdown) {
+                params.notification = { text: `Server dropdown not found. UI might not be loaded.`, type: 'error' };
+                console.error(`[${EXTENSION_NAME}] ContextMenu Bulk: Server dropdown (#stablequeue_server_dropdown) not found.`);
                 return params;
             }
             
             const serverAlias = serverDropdown.value;
+            const selectedOptionText = serverDropdown.options[serverDropdown.selectedIndex]?.text;
+
+            if (!serverAlias || serverAlias.trim() === "") {
+                if (serverDropdown.options.length > 0 && selectedOptionText === "Configure API key in settings") {
+                    params.notification = { text: `Please configure API credentials in Settings → StableQueue Integration`, type: 'error' };
+                    return params;
+                }
+                params.notification = { text: `No server selected or invalid server value. Value: "${serverAlias}". Selected: "${selectedOptionText}"`, type: 'error' };
+                console.error(`[${EXTENSION_NAME}] ContextMenu Bulk: No server selected. Value: "${serverAlias}", Options: ${serverDropdown.options.length}, Selected Text: "${selectedOptionText}"`);
+                return params;
+            }
             
-            // Check if it's the placeholder option
             if (serverAlias === "Configure API key in settings") {
                 params.notification = { text: `Please configure API credentials in Settings → StableQueue Integration`, type: 'error' };
                 return params;
@@ -208,20 +230,67 @@ queueBtn.addEventListener('click', async (e) => {
                     return;
                 }
                 
-                // Get the selected server from the StableQueue tab
-                const serverDropdown = document.querySelector('#stablequeue select');
-                if (!serverDropdown || serverDropdown.options.length === 0 || !serverDropdown.value) {
-                    showNotification('No server selected in StableQueue tab. Please select a server first.', 'error');
-                    reject(new Error('No server selected'));
+                const serverDropdown = document.querySelector('#stablequeue_server_dropdown');
+                
+                if (!serverDropdown) {
+                    showNotification('Server dropdown not found in StableQueue tab. UI might not be loaded.', 'error');
+                    console.error(`[${EXTENSION_NAME}] Server dropdown (#stablequeue_server_dropdown) not found.`);
+                    reject(new Error('Server dropdown not found'));
+                    return;
+                }
+
+                // --- DETAILED LOGGING FOR DROPDOWN STATE ---
+                console.log(`[${EXTENSION_NAME}] --- Debugging Dropdown State ---`);
+                console.log(`[${EXTENSION_NAME}] Dropdown Element:`, serverDropdown);
+                console.log(`[${EXTENSION_NAME}] Dropdown Value (serverDropdown.value): "${serverDropdown.value}"`);
+                console.log(`[${EXTENSION_NAME}] Selected Index (serverDropdown.selectedIndex): ${serverDropdown.selectedIndex}`);
+                
+                if (serverDropdown.options && serverDropdown.selectedIndex >= 0 && serverDropdown.selectedIndex < serverDropdown.options.length) {
+                    const selectedOpt = serverDropdown.options[serverDropdown.selectedIndex];
+                    console.log(`[${EXTENSION_NAME}] Selected Option Element:`, selectedOpt);
+                    console.log(`[${EXTENSION_NAME}] Selected Option Text (selectedOpt.text): "${selectedOpt.text}"`);
+                    console.log(`[${EXTENSION_NAME}] Selected Option Value (selectedOpt.value): "${selectedOpt.value}"`);
+                } else {
+                    console.log(`[${EXTENSION_NAME}] No option selected or index out of bounds. Options count: ${serverDropdown.options ? serverDropdown.options.length : 'N/A'}`);
+                }
+                // console.log(`[${EXTENSION_NAME}] Dropdown outerHTML:`, serverDropdown.outerHTML); // Potentially very long, enable if needed
+                console.log(`[${EXTENSION_NAME}] --- End Debugging Dropdown State ---`);
+
+                const serverAlias = serverDropdown.value;
+                // const selectedOptionText = serverDropdown.options[serverDropdown.selectedIndex]?.text; // Already logged above more safely
+
+                // It's crucial to check serverAlias after attempting to read it.
+                // The user confirms a server IS selected, so serverAlias should ideally be non-empty.
+                if (!serverAlias || serverAlias.trim() === "") {
+                    let errorDetail = `Dropdown value is "${serverAlias}". `;
+                    errorDetail += `Selected index: ${serverDropdown.selectedIndex}. `;
+                    if (serverDropdown.options && serverDropdown.selectedIndex >= 0 && serverDropdown.selectedIndex < serverDropdown.options.length) {
+                        errorDetail += `Selected option text: "${serverDropdown.options[serverDropdown.selectedIndex].text}". `;
+                        errorDetail += `Selected option value: "${serverDropdown.options[serverDropdown.selectedIndex].value}". `;
+                    } else {
+                        errorDetail += `Could not get selected option details. Options count: ${serverDropdown.options ? serverDropdown.options.length : 'N/A'}. `;
+                    }
+                    
+                    // Check if it's the default "Configure" text, which implies credentials are not set or servers not fetched
+                    // This check might be redundant if "Refresh Servers" works and populates real servers.
+                    if (serverDropdown.options.length > 0 && serverDropdown.options[serverDropdown.selectedIndex]?.text === "Configure API key in settings") {
+                        showNotification('Please configure API credentials in Settings → StableQueue Integration and refresh servers.', 'error');
+                        console.error(`[${EXTENSION_NAME}] Error: API credentials not configured or servers not fetched. Details: ${errorDetail}`);
+                        reject(new Error('API credentials not configured or servers not fetched.'));
+                        return;
+                    }
+
+                    showNotification(`No server selected or dropdown returned an empty value. Please re-select from the StableQueue tab. Details: ${errorDetail}`, 'error');
+                    console.error(`[${EXTENSION_NAME}] Error: No server selected or dropdown value is empty. Details: ${errorDetail}`);
+                    reject(new Error('No server selected or dropdown returned an empty value.'));
                     return;
                 }
                 
-                const serverAlias = serverDropdown.value;
-                
-                // Check if it's the placeholder option
+                // This specific check should ideally not be hit if the above handles empty serverAlias
                 if (serverAlias === "Configure API key in settings") {
-                    showNotification('Please configure API credentials in Settings → StableQueue Integration', 'error');
-                    reject(new Error('API credentials not configured'));
+                    showNotification('Please configure API credentials in Settings → StableQueue Integration and refresh servers.', 'error');
+                    console.error(`[${EXTENSION_NAME}] Error: "Configure API key in settings" was the effective value.`);
+                    reject(new Error('API credentials not configured - "Configure" message was value.'));
                     return;
                 }
                 
