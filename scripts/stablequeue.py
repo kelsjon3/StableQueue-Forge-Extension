@@ -233,9 +233,7 @@ class StableQueue(scripts.Script):
                     )
                 
                 with FormRow():
-                    queue_btn = gr.Button("Queue in StableQueue", variant="primary")
-                    queue_bulk_btn = gr.Button("Queue Bulk Job", variant="secondary")
-                    refresh_btn = ToolButton("🔄")
+                    refresh_btn = gr.Button("🔄 Refresh Servers")
                 
                 status_html = gr.HTML("<div>Not connected to StableQueue</div>")
         
@@ -252,45 +250,18 @@ class StableQueue(scripts.Script):
             outputs=[server_alias, status_html]
         )
         
-        # We need to create wrapper functions that can access the 'p' parameter
-        # which contains all the generation parameters from the Forge UI
-        def queue_wrapper(p, server, priority):
-            success, message = self.queue_in_stablequeue(p, server, priority)
-            if success:
-                return f"<div style='color:green'>{message}</div>"
-            else:
-                return f"<div style='color:red'>{message}</div>"
-        
-        def queue_bulk_wrapper(p, server, priority):
-            success, message = self.queue_in_stablequeue(p, server, priority, job_type="bulk")
-            if success:
-                return f"<div style='color:green'>{message}</div>"
-            else:
-                return f"<div style='color:red'>{message}</div>"
-        
-        # Connect the queue button to the wrapper function
-        queue_btn.click(
-            fn=queue_wrapper,
-            inputs=[
-                # This will be filled with the 'p' object by Forge
-                gr.State(None),
-                server_alias,
-                priority
-            ],
-            outputs=[status_html]
-        )
-        
-        # Connect the bulk queue button
-        queue_bulk_btn.click(
-            fn=queue_bulk_wrapper,
-            inputs=[
-                # This will be filled with the 'p' object by Forge
-                gr.State(None),
-                server_alias,
-                priority
-            ],
-            outputs=[status_html]
-        )
+        # Information about how to use the extension
+        gr.HTML("""
+        <div style='margin-top: 20px; padding: 15px; background-color: rgba(0,100,200,0.1); border-radius: 8px;'>
+            <h3>How to Use StableQueue:</h3>
+            <ul>
+                <li><strong>Queue Jobs:</strong> Use the 'Queue in StableQueue' buttons next to the Generate buttons in txt2img/img2img tabs</li>
+                <li><strong>Bulk Jobs:</strong> Use the 'Bulk Queue' buttons for multiple job submission</li>
+                <li><strong>Context Menu:</strong> Right-click on generation results to send to StableQueue</li>
+                <li><strong>Settings:</strong> Configure API credentials in Settings → StableQueue Integration</li>
+            </ul>
+        </div>
+        """)
         
         return [server_alias, priority, status_html]
     
@@ -334,8 +305,6 @@ def create_stablequeue_tab():
                 )
         
         with gr.Row():
-            queue_btn = gr.Button("Queue in StableQueue", variant="primary")
-            queue_bulk_btn = gr.Button("Queue Bulk Job", variant="secondary")
             refresh_btn = gr.Button("🔄 Refresh Servers")
         
         status_html = gr.HTML("<div>Not connected to StableQueue</div>")
@@ -353,14 +322,18 @@ def create_stablequeue_tab():
             outputs=[server_alias, status_html]
         )
         
-        # Note: The queue buttons won't work in this tab format because we don't have access to the 'p' parameter
-        # The main functionality will come from the JavaScript buttons and context menu
-        
-        def show_info():
-            return "<div style='color:blue'>Use the 'Queue in StableQueue' buttons next to the Generate buttons in txt2img/img2img tabs, or use the context menu options.</div>"
-        
-        queue_btn.click(fn=show_info, outputs=[status_html])
-        queue_bulk_btn.click(fn=show_info, outputs=[status_html])
+        # Information about how to use the extension
+        gr.HTML("""
+        <div style='margin-top: 20px; padding: 15px; background-color: rgba(0,100,200,0.1); border-radius: 8px;'>
+            <h3>How to Use StableQueue:</h3>
+            <ul>
+                <li><strong>Queue Jobs:</strong> Use the 'Queue in StableQueue' buttons next to the Generate buttons in txt2img/img2img tabs</li>
+                <li><strong>Bulk Jobs:</strong> Use the 'Bulk Queue' buttons for multiple job submission</li>
+                <li><strong>Context Menu:</strong> Right-click on generation results to send to StableQueue</li>
+                <li><strong>Settings:</strong> Configure API credentials in Settings → StableQueue Integration</li>
+            </ul>
+        </div>
+        """)
     
     return [(stablequeue_interface, "StableQueue", "stablequeue")]
 

@@ -83,14 +83,20 @@ queueBtn.addEventListener('click', async (e) => {
         window.stablequeue_send_single = function(params) {
             const data = JSON.parse(JSON.stringify(params));
             
-            // Find the first available server in the dropdown
-            const serverDropdown = gradioApp().querySelector('#tab_stablequeue select');
-            if (!serverDropdown || serverDropdown.options.length === 0) {
-                params.notification = { text: `No servers configured in StableQueue settings`, type: 'error' };
+            // Get the selected server from the StableQueue tab
+            const serverDropdown = document.querySelector('#stablequeue select');
+            if (!serverDropdown || serverDropdown.options.length === 0 || !serverDropdown.value) {
+                params.notification = { text: `No server selected in StableQueue tab. Please select a server first.`, type: 'error' };
                 return params;
             }
             
-            const serverAlias = serverDropdown.options[0].value;
+            const serverAlias = serverDropdown.value;
+            
+            // Check if it's the placeholder option
+            if (serverAlias === "Configure API key in settings") {
+                params.notification = { text: `Please configure API credentials in Settings → StableQueue Integration`, type: 'error' };
+                return params;
+            }
             
             // Send job to StableQueue via the API
             fetch(`${getStableQueueUrl()}/api/v2/generate`, {
@@ -133,14 +139,20 @@ queueBtn.addEventListener('click', async (e) => {
         window.stablequeue_send_bulk = function(params) {
             const data = JSON.parse(JSON.stringify(params));
             
-            // Find the first available server in the dropdown
-            const serverDropdown = gradioApp().querySelector('#tab_stablequeue select');
-            if (!serverDropdown || serverDropdown.options.length === 0) {
-                params.notification = { text: `No servers configured in StableQueue settings`, type: 'error' };
+            // Get the selected server from the StableQueue tab
+            const serverDropdown = document.querySelector('#stablequeue select');
+            if (!serverDropdown || serverDropdown.options.length === 0 || !serverDropdown.value) {
+                params.notification = { text: `No server selected in StableQueue tab. Please select a server first.`, type: 'error' };
                 return params;
             }
             
-            const serverAlias = serverDropdown.options[0].value;
+            const serverAlias = serverDropdown.value;
+            
+            // Check if it's the placeholder option
+            if (serverAlias === "Configure API key in settings") {
+                params.notification = { text: `Please configure API credentials in Settings → StableQueue Integration`, type: 'error' };
+                return params;
+            }
             
             // Get bulk job settings from shared opts
             const bulkQuantity = parseInt(localStorage.getItem('stablequeue_bulk_quantity') || '10');
@@ -196,15 +208,22 @@ queueBtn.addEventListener('click', async (e) => {
                     return;
                 }
                 
-                // Get the first available server from the extension settings
-                const serverDropdown = document.querySelector('#tab_stablequeue select');
-                if (!serverDropdown || serverDropdown.options.length === 0) {
-                    showNotification('No servers configured in StableQueue settings', 'error');
-                    reject(new Error('No servers configured'));
+                // Get the selected server from the StableQueue tab
+                const serverDropdown = document.querySelector('#stablequeue select');
+                if (!serverDropdown || serverDropdown.options.length === 0 || !serverDropdown.value) {
+                    showNotification('No server selected in StableQueue tab. Please select a server first.', 'error');
+                    reject(new Error('No server selected'));
                     return;
                 }
                 
-                const serverAlias = serverDropdown.options[0].value;
+                const serverAlias = serverDropdown.value;
+                
+                // Check if it's the placeholder option
+                if (serverAlias === "Configure API key in settings") {
+                    showNotification('Please configure API credentials in Settings → StableQueue Integration', 'error');
+                    reject(new Error('API credentials not configured'));
+                    return;
+                }
                 
                 // Prepare request data
                 const requestData = {
