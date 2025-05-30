@@ -8,8 +8,10 @@ import json
 
 # Configuration
 STABLEQUEUE_URL = "http://192.168.73.124:8083"
-API_KEY = "mk_1f37ad25b30674500a9d8c3e"  # Working API key from testing
-API_SECRET = "dc82a5d88ed78460eebfc13f8f21226e"  # Working API secret from testing
+import os
+
+API_KEY = os.getenv("STABLEQUEUE_API_KEY", "")
+API_SECRET = os.getenv("STABLEQUEUE_API_SECRET", "")
 
 def test_server_status():
     """Test basic server connectivity"""
