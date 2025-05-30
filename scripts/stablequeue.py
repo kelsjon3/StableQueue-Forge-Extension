@@ -7,10 +7,11 @@ import time
 import uuid
 from modules import shared
 from modules.ui_components import FormRow, FormGroup, ToolButton
+from modules import script_callbacks
 
 VERSION = "1.0.0"
 EXTENSION_NAME = "StableQueue Extension"
-DEFAULT_SERVER_URL = "http://localhost:3000"
+DEFAULT_SERVER_URL = "http://192.168.73.124:8083"
 
 class StableQueue(scripts.Script):
     def __init__(self):
@@ -59,34 +60,41 @@ class StableQueue(scripts.Script):
     def test_connection(self, url, key, secret):
         """Test connection to StableQueue server"""
         try:
+            # First test basic server connectivity
             response = requests.get(
                 f"{url}/status",
-                headers={
-                    "X-API-Key": key,
-                    "X-API-Secret": secret
-                } if key and secret else {},
                 timeout=5
             )
             
             if response.status_code == 200:
-                # If status is ok, also try to fetch servers to verify authentication
-                servers_response = requests.get(
-                    f"{url}/api/v1/servers",
-                    headers={
-                        "X-API-Key": key,
-                        "X-API-Secret": secret
-                    } if key and secret else {},
-                    timeout=5
-                )
-                
-                if servers_response.status_code == 200:
-                    self.servers_list = [server["alias"] for server in servers_response.json()]
-                    self.connection_verified = True
-                    return True, f"Connected to StableQueue server. Found {len(self.servers_list)} server(s)."
+                # If status is ok, test API authentication if credentials provided
+                if key and secret:
+                    servers_response = requests.get(
+                        f"{url}/api/v1/servers",
+                        headers={
+                            "X-API-Key": key,
+                            "X-API-Secret": secret
+                        },
+                        timeout=5
+                    )
+                    
+                    if servers_response.status_code == 200:
+                        self.servers_list = [server["alias"] for server in servers_response.json()]
+                        self.connection_verified = True
+                        return True, f"Connected to StableQueue server. Found {len(self.servers_list)} server(s)."
+                    elif servers_response.status_code == 401:
+                        return False, "Server is reachable, but API authentication failed. Please check your API key and secret."
+                    else:
+                        return False, f"Server is reachable, but API request failed: {servers_response.status_code}"
                 else:
-                    return False, f"Server is reachable, but API authentication failed: {servers_response.status_code}"
+                    # No credentials provided, but server is reachable
+                    return True, "Server is reachable. Please configure API credentials to access server list."
             else:
                 return False, f"Failed to connect to StableQueue: {response.status_code} - {response.text}"
+        except requests.exceptions.ConnectionError:
+            return False, f"Cannot connect to StableQueue server at {url}. Please check the URL and ensure the server is running."
+        except requests.exceptions.Timeout:
+            return False, f"Connection to StableQueue server timed out. Please check the server status."
         except Exception as e:
             return False, f"Error connecting to StableQueue: {str(e)}"
     
@@ -290,42 +298,42 @@ class StableQueue(scripts.Script):
         # This will be used to add buttons directly to the UI outside our tab
         pass
 
-    def on_ui_settings(self):
-        """Add StableQueue settings to the Forge settings panel"""
-        section = ('stablequeue', "StableQueue Integration")
-        
-        # Add settings
-        shared.opts.add_option("stablequeue_url", shared.OptionInfo(
-            DEFAULT_SERVER_URL, "StableQueue Server URL", section=section
-        ))
-        
-        shared.opts.add_option("stablequeue_api_key", shared.OptionInfo(
-            "", "API Key", section=section
-        ))
-        
-        shared.opts.add_option("stablequeue_api_secret", shared.OptionInfo(
-            "", "API Secret", section=section
-        ))
-        
-        shared.opts.add_option("stablequeue_bulk_quantity", shared.OptionInfo(
-            10, "Bulk Job Quantity", section=section, gr_component=gr.Slider, minimum=1, maximum=100, step=1
-        ))
-        
-        shared.opts.add_option("stablequeue_seed_variation", shared.OptionInfo(
-            "Random", "Seed Variation Method", section=section, gr_component=gr.Radio, choices=["Random", "Incremental"]
-        ))
-        
-        shared.opts.add_option("stablequeue_job_delay", shared.OptionInfo(
-            5, "Delay Between Jobs (seconds)", section=section, gr_component=gr.Slider, minimum=0, maximum=30, step=1
-        ))
-        
-        shared.opts.add_option("enable_stablequeue_context_menu", shared.OptionInfo(
-            True, "Add StableQueue options to generation context menu", section=section
-        ))
+# Settings registration function
+def register_stablequeue_settings():
+    """Register StableQueue settings with Forge"""
+    section = ('stablequeue', "StableQueue Integration")
+    
+    # Add settings
+    shared.opts.add_option("stablequeue_url", shared.OptionInfo(
+        DEFAULT_SERVER_URL, "StableQueue Server URL", section=section
+    ))
+    
+    shared.opts.add_option("stablequeue_api_key", shared.OptionInfo(
+        "", "API Key", section=section
+    ))
+    
+    shared.opts.add_option("stablequeue_api_secret", shared.OptionInfo(
+        "", "API Secret", section=section
+    ))
+    
+    shared.opts.add_option("stablequeue_bulk_quantity", shared.OptionInfo(
+        10, "Bulk Job Quantity", section=section, gr_component=gr.Slider, minimum=1, maximum=100, step=1
+    ))
+    
+    shared.opts.add_option("stablequeue_seed_variation", shared.OptionInfo(
+        "Random", "Seed Variation Method", section=section, gr_component=gr.Radio, choices=["Random", "Incremental"]
+    ))
+    
+    shared.opts.add_option("stablequeue_job_delay", shared.OptionInfo(
+        5, "Delay Between Jobs (seconds)", section=section, gr_component=gr.Slider, minimum=0, maximum=30, step=1
+    ))
+    
+    shared.opts.add_option("enable_stablequeue_context_menu", shared.OptionInfo(
+        True, "Add StableQueue options to generation context menu", section=section
+    ))
 
-# This function is called when the extension is imported by Forge
-def on_ui_settings():
-    StableQueue().on_ui_settings()
+# Register the settings callback
+script_callbacks.on_ui_settings(register_stablequeue_settings)
 
 # Register context menu items if enabled
 def context_menu_entries():

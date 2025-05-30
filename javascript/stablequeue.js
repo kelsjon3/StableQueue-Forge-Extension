@@ -193,7 +193,7 @@
     
     // Helper functions to get configuration from localStorage or defaults
     function getStableQueueUrl() {
-        return localStorage.getItem('stablequeue_url') || 'http://localhost:3000';
+        return localStorage.getItem('stablequeue_url') || 'http://192.168.73.124:8083';
     }
     
     function getApiKey() {
