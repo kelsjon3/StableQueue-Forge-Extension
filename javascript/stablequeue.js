@@ -58,14 +58,16 @@ queueBtn.addEventListener('click', async (e) => {
         .finally(() => (queueBtn.disabled = false));
  });
         
-        bulkQueueBtn.addEventListener('click', (e) => {
+        bulkQueueBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
             
+            if (bulkQueueBtn.disabled) return;
+            bulkQueueBtn.disabled = true;
             console.log(`[${EXTENSION_NAME}] Bulk queue button clicked for ${tabId}`);
             
-            // Directly queue the bulk job via API
-            queueCurrentJob(tabId, 'bulk');
+            await queueCurrentJob(tabId, 'bulk')
+                .finally(() => (bulkQueueBtn.disabled = false));
         });
     }
     
@@ -104,21 +106,21 @@ queueBtn.addEventListener('click', async (e) => {
                     generation_params: data,
                     source_info: `stablequeue_forge_extension_contextmenu_v${EXTENSION_VERSION}`
                 })
-fetch(endpoint, { … })
-  .then(async (response) => {
-      if (!response.ok) {
-          const text = await response.text();
-          throw new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
-      }
-      return response.json();
-  })
-  .then((data) => {
-      if (data.success) {
-           …
-       } else {
-           showNotification(`Error: ${data.error || 'Unknown error'}`, 'error');
-       }
-   })
+            })
+            .then(async (response) => {
+                if (!response.ok) {
+                    const text = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
+                }
+                return response.json();
+            })
+            .then((data) => {
+                if (data.success) {
+                    params.notification = { text: `Job sent to StableQueue: ${data.stablequeue_job_id}`, type: 'success' };
+                } else {
+                    params.notification = { text: `Error: ${data.error || 'Unknown error'}`, type: 'error' };
+                }
+            })
             .catch(error => {
                 console.error(`[${EXTENSION_NAME}] Error sending job:`, error);
                 params.notification = { text: `Connection error: ${error.message}`, type: 'error' };
@@ -184,72 +186,88 @@ fetch(endpoint, { … })
     
     // Function to queue current job directly via API
     function queueCurrentJob(tabId, jobType) {
-        try {
-            // Get current generation parameters from the UI
-            const params = extractGenerationParams(tabId);
-            if (!params) {
-                showNotification('Failed to extract generation parameters', 'error');
-                return;
-            }
-            
-            // Get the first available server from the extension settings
-            const serverDropdown = document.querySelector('#tab_stablequeue select');
-            if (!serverDropdown || serverDropdown.options.length === 0) {
-                showNotification('No servers configured in StableQueue settings', 'error');
-                return;
-            }
-            
-            const serverAlias = serverDropdown.options[0].value;
-            
-            // Prepare request data
-            const requestData = {
-                app_type: 'forge',
-                target_server_alias: serverAlias,
-                generation_params: params,
-                source_info: `stablequeue_forge_extension_${jobType}_v${EXTENSION_VERSION}`
-            };
-            
-            let endpoint = `${getStableQueueUrl()}/api/v2/generate`;
-            
-            if (jobType === 'bulk') {
-                // Add bulk job specific parameters
-                requestData.bulk_quantity = parseInt(localStorage.getItem('stablequeue_bulk_quantity') || '10');
-                requestData.seed_variation = localStorage.getItem('stablequeue_seed_variation') || 'random';
-                requestData.job_delay = parseInt(localStorage.getItem('stablequeue_job_delay') || '5');
-                endpoint = `${getStableQueueUrl()}/api/v2/generate/bulk`;
-            }
-            
-            // Send to StableQueue API
-            fetch(endpoint, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'X-API-Key': getApiKey(),
-                    'X-API-Secret': getApiSecret()
-                },
-                body: JSON.stringify(requestData)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    if (jobType === 'bulk') {
-                        showNotification(`Bulk job sent to StableQueue: ${data.total_jobs} jobs queued`, 'success');
-                    } else {
-                        showNotification(`Job sent to StableQueue: ${data.stablequeue_job_id}`, 'success');
-                    }
-                } else {
-                    showNotification(`Error: ${data.error || 'Unknown error'}`, 'error');
+        return new Promise((resolve, reject) => {
+            try {
+                // Get current generation parameters from the UI
+                const params = extractGenerationParams(tabId);
+                if (!params) {
+                    showNotification('Failed to extract generation parameters', 'error');
+                    reject(new Error('Failed to extract generation parameters'));
+                    return;
                 }
-            })
-            .catch(error => {
-                console.error(`[${EXTENSION_NAME}] Error sending ${jobType} job:`, error);
-                showNotification(`Connection error: ${error.message}`, 'error');
-            });
-            
-        } catch (error) {
-            console.error(`[${EXTENSION_NAME}] Error in queueCurrentJob:`, error);
-            showNotification(`Error: ${error.message}`, 'error');
-        }
+                
+                // Get the first available server from the extension settings
+                const serverDropdown = document.querySelector('#tab_stablequeue select');
+                if (!serverDropdown || serverDropdown.options.length === 0) {
+                    showNotification('No servers configured in StableQueue settings', 'error');
+                    reject(new Error('No servers configured'));
+                    return;
+                }
+                
+                const serverAlias = serverDropdown.options[0].value;
+                
+                // Prepare request data
+                const requestData = {
+                    app_type: 'forge',
+                    target_server_alias: serverAlias,
+                    generation_params: params,
+                    source_info: `stablequeue_forge_extension_${jobType}_v${EXTENSION_VERSION}`
+                };
+                
+                let endpoint = `${getStableQueueUrl()}/api/v2/generate`;
+                
+                if (jobType === 'bulk') {
+                    // Add bulk job specific parameters
+                    requestData.bulk_quantity = parseInt(localStorage.getItem('stablequeue_bulk_quantity') || '10');
+                    requestData.seed_variation = localStorage.getItem('stablequeue_seed_variation') || 'random';
+                    requestData.job_delay = parseInt(localStorage.getItem('stablequeue_job_delay') || '5');
+                    endpoint = `${getStableQueueUrl()}/api/v2/generate/bulk`;
+                }
+                
+                // Send to StableQueue API
+                fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-API-Key': getApiKey(),
+                        'X-API-Secret': getApiSecret()
+                    },
+                    body: JSON.stringify(requestData)
+                })
+                .then(async (response) => {
+                    if (!response.ok) {
+                        const text = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        if (jobType === 'bulk') {
+                            showNotification(`Bulk job sent to StableQueue: ${data.total_jobs} jobs queued`, 'success');
+                        } else {
+                            showNotification(`Job sent to StableQueue: ${data.stablequeue_job_id}`, 'success');
+                        }
+                        resolve(data);
+                    } else {
+                        const errorMsg = `Error: ${data.error || 'Unknown error'}`;
+                        showNotification(errorMsg, 'error');
+                        reject(new Error(errorMsg));
+                    }
+                })
+                .catch(error => {
+                    console.error(`[${EXTENSION_NAME}] Error sending ${jobType} job:`, error);
+                    const errorMsg = `Connection error: ${error.message}`;
+                    showNotification(errorMsg, 'error');
+                    reject(error);
+                });
+                
+            } catch (error) {
+                console.error(`[${EXTENSION_NAME}] Error in queueCurrentJob:`, error);
+                showNotification(`Error: ${error.message}`, 'error');
+                reject(error);
+            }
+        });
     }
     
     // Function to extract generation parameters from the current UI
