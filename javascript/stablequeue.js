@@ -47,15 +47,16 @@
         generateBtn.parentNode.insertBefore(bulkQueueBtn, queueBtn.nextSibling);
         
         // Add click event listeners
-        queueBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            console.log(`[${EXTENSION_NAME}] Queue button clicked for ${tabId}`);
-            
-            // Directly queue the job via API
-            queueCurrentJob(tabId, 'single');
-        });
+queueBtn.addEventListener('click', async (e) => {
+   e.preventDefault();
+   e.stopPropagation();
+
+  if (queueBtn.disabled) return;            // guard
+  queueBtn.disabled = true;
+   console.log(`[${EXTENSION_NAME}] Queue button clicked for ${tabId}`);
+  await queueCurrentJob(tabId, 'single')
+        .finally(() => (queueBtn.disabled = false));
+ });
         
         bulkQueueBtn.addEventListener('click', (e) => {
             e.preventDefault();
@@ -103,15 +104,21 @@
                     generation_params: data,
                     source_info: `stablequeue_forge_extension_contextmenu_v${EXTENSION_VERSION}`
                 })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    params.notification = { text: `Job sent to StableQueue: ${data.stablequeue_job_id}`, type: 'success' };
-                } else {
-                    params.notification = { text: `Error: ${data.error || 'Unknown error'}`, type: 'error' };
-                }
-            })
+fetch(endpoint, { … })
+  .then(async (response) => {
+      if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
+      }
+      return response.json();
+  })
+  .then((data) => {
+      if (data.success) {
+           …
+       } else {
+           showNotification(`Error: ${data.error || 'Unknown error'}`, 'error');
+       }
+   })
             .catch(error => {
                 console.error(`[${EXTENSION_NAME}] Error sending job:`, error);
                 params.notification = { text: `Connection error: ${error.message}`, type: 'error' };
@@ -270,7 +277,10 @@
             if (heightInput) params.height = parseInt(heightInput.value) || 512;
             if (stepsInput) params.steps = parseInt(stepsInput.value) || 20;
             if (cfgInput) params.cfg_scale = parseFloat(cfgInput.value) || 7.0;
-            if (seedInput) params.seed = parseInt(seedInput.value) || -1;
+            if (seedInput) {
+    const v = parseInt(seedInput.value, 10);
+    params.seed = Number.isNaN(v) ? -1 : v;
+}
             if (batchSizeInput) params.batch_size = parseInt(batchSizeInput.value) || 1;
             if (batchCountInput) params.batch_count = parseInt(batchCountInput.value) || 1;
             
