@@ -47,40 +47,24 @@
         generateBtn.parentNode.insertBefore(bulkQueueBtn, queueBtn.nextSibling);
         
         // Add click event listeners
-        queueBtn.addEventListener('click', () => {
-            // Find and click the StableQueue tab's queue button
-            const accordionBtn = document.querySelector(`.accordion-button[aria-controls*="stablequeue"]`);
-            if (accordionBtn && !accordionBtn.classList.contains('expanded')) {
-                accordionBtn.click();
-            }
+        queueBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             
-            // Click the Queue button in our extension UI
-            setTimeout(() => {
-                const extensionQueueBtn = document.querySelector('#tab_stablequeue button[aria-label="Queue in StableQueue"]');
-                if (extensionQueueBtn) {
-                    extensionQueueBtn.click();
-                } else {
-                    console.log(`[${EXTENSION_NAME}] Could not find Queue button in extension UI`);
-                }
-            }, 100);
+            console.log(`[${EXTENSION_NAME}] Queue button clicked for ${tabId}`);
+            
+            // Directly queue the job via API
+            queueCurrentJob(tabId, 'single');
         });
         
-        bulkQueueBtn.addEventListener('click', () => {
-            // Find and click the StableQueue tab's bulk queue button
-            const accordionBtn = document.querySelector(`.accordion-button[aria-controls*="stablequeue"]`);
-            if (accordionBtn && !accordionBtn.classList.contains('expanded')) {
-                accordionBtn.click();
-            }
+        bulkQueueBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             
-            // Click the Bulk Queue button in our extension UI
-            setTimeout(() => {
-                const extensionBulkQueueBtn = document.querySelector('#tab_stablequeue button[aria-label="Queue Bulk Job"]');
-                if (extensionBulkQueueBtn) {
-                    extensionBulkQueueBtn.click();
-                } else {
-                    console.log(`[${EXTENSION_NAME}] Could not find Bulk Queue button in extension UI`);
-                }
-            }, 100);
+            console.log(`[${EXTENSION_NAME}] Bulk queue button clicked for ${tabId}`);
+            
+            // Directly queue the bulk job via API
+            queueCurrentJob(tabId, 'bulk');
         });
     }
     
@@ -191,6 +175,156 @@
         console.log(`[${EXTENSION_NAME}] Context menu handlers registered`);
     }
     
+    // Function to queue current job directly via API
+    function queueCurrentJob(tabId, jobType) {
+        try {
+            // Get current generation parameters from the UI
+            const params = extractGenerationParams(tabId);
+            if (!params) {
+                showNotification('Failed to extract generation parameters', 'error');
+                return;
+            }
+            
+            // Get the first available server from the extension settings
+            const serverDropdown = document.querySelector('#tab_stablequeue select');
+            if (!serverDropdown || serverDropdown.options.length === 0) {
+                showNotification('No servers configured in StableQueue settings', 'error');
+                return;
+            }
+            
+            const serverAlias = serverDropdown.options[0].value;
+            
+            // Prepare request data
+            const requestData = {
+                app_type: 'forge',
+                target_server_alias: serverAlias,
+                generation_params: params,
+                source_info: `stablequeue_forge_extension_${jobType}_v${EXTENSION_VERSION}`
+            };
+            
+            let endpoint = `${getStableQueueUrl()}/api/v2/generate`;
+            
+            if (jobType === 'bulk') {
+                // Add bulk job specific parameters
+                requestData.bulk_quantity = parseInt(localStorage.getItem('stablequeue_bulk_quantity') || '10');
+                requestData.seed_variation = localStorage.getItem('stablequeue_seed_variation') || 'random';
+                requestData.job_delay = parseInt(localStorage.getItem('stablequeue_job_delay') || '5');
+                endpoint = `${getStableQueueUrl()}/api/v2/generate/bulk`;
+            }
+            
+            // Send to StableQueue API
+            fetch(endpoint, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-API-Key': getApiKey(),
+                    'X-API-Secret': getApiSecret()
+                },
+                body: JSON.stringify(requestData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    if (jobType === 'bulk') {
+                        showNotification(`Bulk job sent to StableQueue: ${data.total_jobs} jobs queued`, 'success');
+                    } else {
+                        showNotification(`Job sent to StableQueue: ${data.stablequeue_job_id}`, 'success');
+                    }
+                } else {
+                    showNotification(`Error: ${data.error || 'Unknown error'}`, 'error');
+                }
+            })
+            .catch(error => {
+                console.error(`[${EXTENSION_NAME}] Error sending ${jobType} job:`, error);
+                showNotification(`Connection error: ${error.message}`, 'error');
+            });
+            
+        } catch (error) {
+            console.error(`[${EXTENSION_NAME}] Error in queueCurrentJob:`, error);
+            showNotification(`Error: ${error.message}`, 'error');
+        }
+    }
+    
+    // Function to extract generation parameters from the current UI
+    function extractGenerationParams(tabId) {
+        try {
+            const params = {};
+            
+            // Get prompt fields
+            const promptTextarea = document.querySelector(`#${tabId}_prompt textarea`);
+            const negativePromptTextarea = document.querySelector(`#${tabId}_neg_prompt textarea`);
+            
+            if (promptTextarea) params.positive_prompt = promptTextarea.value;
+            if (negativePromptTextarea) params.negative_prompt = negativePromptTextarea.value;
+            
+            // Get basic parameters
+            const widthInput = document.querySelector(`#${tabId}_width input`);
+            const heightInput = document.querySelector(`#${tabId}_height input`);
+            const stepsInput = document.querySelector(`#${tabId}_steps input`);
+            const cfgInput = document.querySelector(`#${tabId}_cfg_scale input`);
+            const seedInput = document.querySelector(`#${tabId}_seed input`);
+            const batchSizeInput = document.querySelector(`#${tabId}_batch_size input`);
+            const batchCountInput = document.querySelector(`#${tabId}_batch_count input`);
+            
+            if (widthInput) params.width = parseInt(widthInput.value) || 512;
+            if (heightInput) params.height = parseInt(heightInput.value) || 512;
+            if (stepsInput) params.steps = parseInt(stepsInput.value) || 20;
+            if (cfgInput) params.cfg_scale = parseFloat(cfgInput.value) || 7.0;
+            if (seedInput) params.seed = parseInt(seedInput.value) || -1;
+            if (batchSizeInput) params.batch_size = parseInt(batchSizeInput.value) || 1;
+            if (batchCountInput) params.batch_count = parseInt(batchCountInput.value) || 1;
+            
+            // Get sampler
+            const samplerDropdown = document.querySelector(`#${tabId}_sampling select`);
+            if (samplerDropdown) params.sampler_name = samplerDropdown.value;
+            
+            return params;
+        } catch (error) {
+            console.error(`[${EXTENSION_NAME}] Error extracting parameters:`, error);
+            return null;
+        }
+    }
+    
+    // Function to show notifications in the UI
+    function showNotification(message, type) {
+        // Try to find an existing notification area or create one
+        let notificationArea = document.querySelector('#stablequeue-notifications');
+        if (!notificationArea) {
+            notificationArea = document.createElement('div');
+            notificationArea.id = 'stablequeue-notifications';
+            notificationArea.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 10000;
+                max-width: 400px;
+            `;
+            document.body.appendChild(notificationArea);
+        }
+        
+        // Create notification element
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            color: white;
+            font-weight: 500;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            background-color: ${type === 'success' ? '#28a745' : '#dc3545'};
+        `;
+        notification.textContent = message;
+        
+        notificationArea.appendChild(notification);
+        
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 5000);
+    }
+    
     // Helper functions to get configuration from localStorage or defaults
     function getStableQueueUrl() {
         return localStorage.getItem('stablequeue_url') || 'http://192.168.73.124:8083';
@@ -214,4 +348,4 @@
         // Register context menu handlers
         registerContextMenuHandlers();
     });
-})(); 
+})();
