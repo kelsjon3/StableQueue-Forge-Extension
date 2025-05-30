@@ -33,7 +33,7 @@ class StableQueue(scripts.Script):
         return "StableQueue"
     
     def show(self, is_img2img):
-        return scripts.AlwaysVisible
+        return True
     
     def fetch_servers(self):
         """Fetch available server aliases from StableQueue"""
@@ -215,28 +215,26 @@ class StableQueue(scripts.Script):
     
     def ui(self, is_img2img):
         """Create the UI components for the StableQueue extension"""
-        with gr.Group():
-            with gr.Accordion("StableQueue", open=False):
-                with FormRow():
-                    server_alias = gr.Dropdown(
-                        label="Target Server", 
-                        choices=self.servers_list if self.servers_list else ["Configure API key in settings"],
-                        interactive=True
-                    )
-                    priority = gr.Slider(
-                        minimum=1, 
-                        maximum=10, 
-                        value=5, 
-                        step=1, 
-                        label="Priority"
-                    )
-                
-                with FormRow():
-                    queue_btn = gr.Button("Queue in StableQueue", variant="primary")
-                    queue_bulk_btn = gr.Button("Queue Bulk Job", variant="secondary")
-                    refresh_btn = ToolButton("🔄")
-                
-                status_html = gr.HTML("<div>Not connected to StableQueue</div>")
+        with FormRow():
+            server_alias = gr.Dropdown(
+                label="Target Server", 
+                choices=self.servers_list if self.servers_list else ["Configure API key in settings"],
+                interactive=True
+            )
+            priority = gr.Slider(
+                minimum=1, 
+                maximum=10, 
+                value=5, 
+                step=1, 
+                label="Priority"
+            )
+        
+        with FormRow():
+            queue_btn = gr.Button("Queue in StableQueue", variant="primary")
+            queue_bulk_btn = gr.Button("Queue Bulk Job", variant="secondary")
+            refresh_btn = ToolButton("🔄")
+        
+        status_html = gr.HTML("<div>Not connected to StableQueue</div>")
         
         # Refresh button to update server list
         def refresh_servers():
