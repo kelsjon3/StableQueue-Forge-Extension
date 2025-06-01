@@ -372,66 +372,82 @@ def register_stablequeue_settings():
 # Register settings callback
 script_callbacks.on_ui_settings(register_stablequeue_settings)
 
-# Global function that JavaScript can call
-def queue_job_from_javascript(generation_params_json, server_alias, job_type="single"):
+# Global function that JavaScript can call to capture the complete API payload
+def queue_job_from_javascript(api_payload_json, server_alias, job_type="single"):
     """
-    Function that can be called from JavaScript to queue jobs
+    Function that receives the complete API payload that would go to /sdapi/v1/txt2img
+    This ensures we capture ALL parameters including extension parameters
     """
     try:
         import json
         
-        # Parse the JSON parameters
-        generation_params = json.loads(generation_params_json)
+        # Parse the complete API payload
+        api_payload = json.loads(api_payload_json)
+        
+        # Log received parameters for debugging
+        print(f"[StableQueue] Complete API payload received: {api_payload}")
         
         # Create a StableQueue instance to access settings and methods
         stablequeue_instance = StableQueue()
         
-        # Create a mock processing object that the existing method expects
-        class MockP:
-            def __init__(self, params):
-                # Basic parameters
-                self.prompt = params.get('positive_prompt', '')
-                self.negative_prompt = params.get('negative_prompt', '')
-                self.width = params.get('width', 512)
-                self.height = params.get('height', 512)
-                self.steps = params.get('steps', 20)
-                self.cfg_scale = params.get('cfg_scale', 7)
-                self.sampler_name = params.get('sampler_name', 'Euler')
-                self.seed = params.get('seed', -1)
-                self.batch_size = params.get('batch_size', 1)
-                self.n_iter = params.get('batch_count', 1)
-                
-                # Mock sd_model for checkpoint
-                self.sd_model = type('obj', (object,), {
-                    'name': params.get('checkpoint_name', '')
-                })()
-                
-                # Optional parameters
-                self.restore_faces = params.get('restore_faces', False)
-                self.enable_hr = params.get('enable_hr', False)
-                if self.enable_hr:
-                    self.hr_scale = params.get('hr_scale', 2.0)
-                    self.hr_upscaler = params.get('hr_upscaler', 'Latent')
-                    self.hr_second_pass_steps = params.get('hr_second_pass_steps', 0)
-                
-                self.subseed = params.get('subseed', -1)
-                self.subseed_strength = params.get('subseed_strength', 0)
+        # Prepare request body for StableQueue using the complete API payload
+        request_data = {
+            "app_type": "forge",
+            "target_server_alias": server_alias,
+            "generation_params": api_payload,  # Use the complete payload directly
+            "source_info": f"stablequeue_forge_extension_v{VERSION}"
+        }
         
-        # Create mock processing object
-        mock_p = MockP(generation_params)
+        # Add priority
+        request_data["priority"] = 5  # Default priority
         
-        # Call the existing queue method
-        success, message = stablequeue_instance.queue_in_stablequeue(
-            mock_p, 
-            server_alias, 
-            priority=5,  # Default priority
-            job_type=job_type
-        )
+        # Check if it's a bulk job
+        if job_type == "bulk":
+            # Add bulk job specific parameters
+            request_data["bulk_quantity"] = stablequeue_instance.bulk_job_quantity
+            request_data["job_delay"] = stablequeue_instance.job_delay
+            request_data["source_info"] = f"stablequeue_forge_extension_bulk_v{VERSION}"
+            
+            endpoint = f"{stablequeue_instance.stablequeue_url}/api/v2/generate/bulk"
+        else:
+            endpoint = f"{stablequeue_instance.stablequeue_url}/api/v2/generate"
         
-        return json.dumps({
-            "success": success,
-            "message": message
-        })
+        # Send to StableQueue API directly
+        try:
+            response = requests.post(
+                endpoint,
+                json=request_data,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-API-Key": stablequeue_instance.api_key,
+                    "X-API-Secret": stablequeue_instance.api_secret
+                },
+                timeout=30
+            )
+            
+            if response.status_code in [200, 201, 202]:
+                data = response.json()
+                if job_type == "bulk":
+                    message = f"Bulk job submitted successfully. {data.get('total_jobs', 0)} jobs queued."
+                else:
+                    job_id = data.get("stablequeue_job_id")
+                    message = f"Job queued successfully. ID: {job_id}"
+                
+                return json.dumps({
+                    "success": True,
+                    "message": message
+                })
+            else:
+                error_msg = f"Error: {response.status_code} - {response.json().get('error', 'Unknown error')}"
+                return json.dumps({
+                    "success": False,
+                    "message": error_msg
+                })
+        except Exception as e:
+            return json.dumps({
+                "success": False,
+                "message": f"Connection error: {str(e)}"
+            })
         
     except Exception as e:
         return json.dumps({
@@ -457,12 +473,12 @@ def setup_javascript_api():
                 try:
                     # Get request data
                     data = await request.json()
-                    generation_params_json = json.dumps(data.get('generation_params', {}))
+                    api_payload_json = json.dumps(data.get('api_payload', {}))
                     server_alias = data.get('server_alias', '')
                     job_type = data.get('job_type', 'single')
                     
-                    # Call our queue function
-                    result_json = queue_job_from_javascript(generation_params_json, server_alias, job_type)
+                    # Call our queue function with the complete API payload
+                    result_json = queue_job_from_javascript(api_payload_json, server_alias, job_type)
                     result = json.loads(result_json)
                     
                     return JSONResponse(content=result)

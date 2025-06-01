@@ -91,14 +91,14 @@ queueBtn.addEventListener('click', async (e) => {
                 return params;
             }
             
-            // Send job to StableQueue via the API
+            // Send job to StableQueue via the API using the complete context menu data
             fetch('/stablequeue/queue_job', {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    generation_params: data,
+                    api_payload: data,  // Use complete context menu data as API payload
                     server_alias: serverAlias,
                     job_type: 'single'
                 })
@@ -137,18 +137,14 @@ queueBtn.addEventListener('click', async (e) => {
                 return params;
             }
             
-            // Get bulk job settings - NO seed manipulation
-            const bulkQuantity = parseInt(localStorage.getItem('stablequeue_bulk_quantity') || '10');
-            const jobDelay = parseInt(localStorage.getItem('stablequeue_job_delay') || '5');
-            
-            // Send bulk job to StableQueue via Forge backend
+            // Send bulk job to StableQueue via Forge backend using complete context menu data
             fetch('/stablequeue/queue_job', {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    generation_params: data,
+                    api_payload: data,  // Use complete context menu data as API payload
                     server_alias: serverAlias,
                     job_type: 'bulk'
                 })
@@ -172,19 +168,11 @@ queueBtn.addEventListener('click', async (e) => {
         console.log(`[${EXTENSION_NAME}] Context menu handlers registered`);
     }
     
-    // Function to queue current job directly via API
+    // Function to queue current job by intercepting the complete API payload
     function queueCurrentJob(tabId, jobType) {
         return new Promise((resolve, reject) => {
             try {
-                // Get current generation parameters from the UI
-                const params = extractGenerationParams(tabId);
-                if (!params) {
-                    showNotification('Failed to extract generation parameters', 'error');
-                    reject(new Error('Failed to extract generation parameters'));
-                    return;
-                }
-                
-                // Get the selected server using our helper function with enhanced debugging
+                // Get the selected server first
                 const serverAlias = getSelectedServer();
                 
                 if (!serverAlias) {
@@ -193,47 +181,101 @@ queueBtn.addEventListener('click', async (e) => {
                     return;
                 }
                 
-                // Prepare request data for Forge backend
-                const requestData = {
-                    generation_params: params,
-                    server_alias: serverAlias,
-                    job_type: jobType
+                console.log(`[${EXTENSION_NAME}] Intercepting ${tabId} API call to capture complete parameters...`);
+                
+                // Create a temporary interceptor for the next API call
+                const originalFetch = window.fetch;
+                let intercepted = false;
+                
+                window.fetch = async function(url, options) {
+                    // Check if this is the txt2img or img2img API call
+                    if (!intercepted && url.includes('/sdapi/v1/') && (url.includes('txt2img') || url.includes('img2img')) && options.method === 'POST') {
+                        intercepted = true;
+                        
+                        // Restore original fetch immediately
+                        window.fetch = originalFetch;
+                        
+                        try {
+                            // Parse the complete API payload
+                            const apiPayload = JSON.parse(options.body);
+                            console.log(`[${EXTENSION_NAME}] Intercepted complete API payload:`, apiPayload);
+                            
+                            // Send to our backend with the complete payload
+                            const requestData = {
+                                api_payload: apiPayload,
+                                server_alias: serverAlias,
+                                job_type: jobType
+                            };
+                            
+                            console.log(`[${EXTENSION_NAME}] Sending complete payload to StableQueue backend`);
+                            
+                            const response = await originalFetch('/stablequeue/queue_job', {
+                                method: 'POST',
+                                headers: { 
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify(requestData)
+                            });
+                            
+                            if (!response.ok) {
+                                const text = await response.text();
+                                throw new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
+                            }
+                            
+                            const data = await response.json();
+                            
+                            if (data.success) {
+                                showNotification(data.message, 'success');
+                                resolve(data);
+                            } else {
+                                const errorMsg = `Error: ${data.message || 'Unknown error'}`;
+                                showNotification(errorMsg, 'error');
+                                reject(new Error(errorMsg));
+                            }
+                            
+                            // Don't actually send the original request - we're queuing instead
+                            return new Response(JSON.stringify({
+                                images: [],
+                                info: `Queued in StableQueue: ${data.message}`
+                            }), {
+                                status: 200,
+                                headers: { 'Content-Type': 'application/json' }
+                            });
+                            
+                        } catch (error) {
+                            console.error(`[${EXTENSION_NAME}] Error processing intercepted payload:`, error);
+                            const errorMsg = `Connection error: ${error.message}`;
+                            showNotification(errorMsg, 'error');
+                            reject(error);
+                            
+                            // Return original call if our queuing fails
+                            return originalFetch(url, options);
+                        }
+                    }
+                    
+                    // For all other requests, use original fetch
+                    return originalFetch(url, options);
                 };
                 
-                console.log(`[${EXTENSION_NAME}] Sending request to Forge backend`);
-                console.log(`[${EXTENSION_NAME}] Request data:`, requestData);
+                // Trigger the generation by clicking the actual generate button
+                const generateBtn = document.querySelector(`#${tabId}_generate`);
+                if (generateBtn) {
+                    generateBtn.click();
+                } else {
+                    // Restore fetch and error
+                    window.fetch = originalFetch;
+                    showNotification('Generate button not found', 'error');
+                    reject(new Error('Generate button not found'));
+                }
                 
-                // Send to Forge backend API
-                fetch('/stablequeue/queue_job', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(requestData)
-                })
-                .then(async (response) => {
-                    if (!response.ok) {
-                        const text = await response.text();
-                        throw new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
+                // Timeout to restore fetch if no interception happens
+                setTimeout(() => {
+                    if (!intercepted) {
+                        window.fetch = originalFetch;
+                        showNotification('Failed to intercept generation request', 'error');
+                        reject(new Error('Failed to intercept generation request'));
                     }
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.success) {
-                        showNotification(data.message, 'success');
-                        resolve(data);
-                    } else {
-                        const errorMsg = `Error: ${data.message || 'Unknown error'}`;
-                        showNotification(errorMsg, 'error');
-                        reject(new Error(errorMsg));
-                    }
-                })
-                .catch(error => {
-                    console.error(`[${EXTENSION_NAME}] Error sending ${jobType} job:`, error);
-                    const errorMsg = `Connection error: ${error.message}`;
-                    showNotification(errorMsg, 'error');
-                    reject(error);
-                });
+                }, 5000);
                 
             } catch (error) {
                 console.error(`[${EXTENSION_NAME}] Error in queueCurrentJob:`, error);
@@ -243,48 +285,8 @@ queueBtn.addEventListener('click', async (e) => {
         });
     }
     
-    // Function to extract generation parameters from the current UI
-    function extractGenerationParams(tabId) {
-        try {
-            const params = {};
-            
-            // Get prompt fields
-            const promptTextarea = document.querySelector(`#${tabId}_prompt textarea`);
-            const negativePromptTextarea = document.querySelector(`#${tabId}_neg_prompt textarea`);
-            
-            if (promptTextarea) params.positive_prompt = promptTextarea.value;
-            if (negativePromptTextarea) params.negative_prompt = negativePromptTextarea.value;
-            
-            // Get basic parameters - extract exactly what's in the UI without defaults
-            const widthInput = document.querySelector(`#${tabId}_width input`);
-            const heightInput = document.querySelector(`#${tabId}_height input`);
-            const stepsInput = document.querySelector(`#${tabId}_steps input`);
-            const cfgInput = document.querySelector(`#${tabId}_cfg_scale input`);
-            const seedInput = document.querySelector(`#${tabId}_seed input`);
-            const batchSizeInput = document.querySelector(`#${tabId}_batch_size input`);
-            const batchCountInput = document.querySelector(`#${tabId}_batch_count input`);
-            
-            if (widthInput && widthInput.value) params.width = parseInt(widthInput.value);
-            if (heightInput && heightInput.value) params.height = parseInt(heightInput.value);
-            if (stepsInput && stepsInput.value) params.steps = parseInt(stepsInput.value);
-            if (cfgInput && cfgInput.value) params.cfg_scale = parseFloat(cfgInput.value);
-            if (seedInput && seedInput.value) {
-                const v = parseInt(seedInput.value, 10);
-                if (!Number.isNaN(v)) params.seed = v;
-            }
-            if (batchSizeInput && batchSizeInput.value) params.batch_size = parseInt(batchSizeInput.value);
-            if (batchCountInput && batchCountInput.value) params.batch_count = parseInt(batchCountInput.value);
-            
-            // Get sampler
-            const samplerDropdown = document.querySelector(`#${tabId}_sampling select`);
-            if (samplerDropdown && samplerDropdown.value) params.sampler_name = samplerDropdown.value;
-            
-            return params;
-        } catch (error) {
-            console.error(`[${EXTENSION_NAME}] Error extracting parameters:`, error);
-            return null;
-        }
-    }
+    // NOTE: Parameter extraction function removed - we now intercept the complete API payload
+    // This ensures we capture ALL parameters including those from extensions
     
     // Function to show notifications in the UI
     function showNotification(message, type) {
