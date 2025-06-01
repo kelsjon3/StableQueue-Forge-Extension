@@ -113,16 +113,15 @@
                             }
                             
                             // Don't actually send the original request - we're queuing instead
- const stub = url.includes('/api/') ? { data: [null], is_generating:false } 
-                                    : { images:[], info:msg };
- return new Response(JSON.stringify(stub), { … });
-                                images: [],
-                                info: `Queued in StableQueue: ${data.message}`
-                            }), {
-                                status: 200,
-                                headers: { 'Content-Type': 'application/json' }
-                            });
-                            
+            const msg = `Queued in StableQueue: ${data.message}`;
+            const stub = url.includes('/api/') 
+                ? { data: [null], is_generating: false } 
+                : { images: [], info: msg };
+            return new Response(JSON.stringify(stub), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' }
+            });
+
                         } catch (error) {
                             console.error(`[${EXTENSION_NAME}] Error processing intercepted payload:`, error);
                             const errorMsg = `Connection error: ${error.message}`;
