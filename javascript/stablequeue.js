@@ -113,7 +113,9 @@
                             }
                             
                             // Don't actually send the original request - we're queuing instead
-                            return new Response(JSON.stringify({
+ const stub = url.includes('/api/') ? { data: [null], is_generating:false } 
+                                    : { images:[], info:msg };
+ return new Response(JSON.stringify(stub), { … });
                                 images: [],
                                 info: `Queued in StableQueue: ${data.message}`
                             }), {
