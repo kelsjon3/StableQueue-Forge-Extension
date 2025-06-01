@@ -83,7 +83,7 @@ queueBtn.addEventListener('click', async (e) => {
         window.stablequeue_send_single = function(params) {
             const data = JSON.parse(JSON.stringify(params));
             
-            // Get the selected server using our helper function
+            // Get the selected server using our helper function with improved error handling
             const serverAlias = getSelectedServer();
             
             if (!serverAlias) {
@@ -129,7 +129,7 @@ queueBtn.addEventListener('click', async (e) => {
         window.stablequeue_send_bulk = function(params) {
             const data = JSON.parse(JSON.stringify(params));
             
-            // Get the selected server using our helper function
+            // Get the selected server using our helper function with improved error handling
             const serverAlias = getSelectedServer();
             
             if (!serverAlias) {
@@ -184,7 +184,7 @@ queueBtn.addEventListener('click', async (e) => {
                     return;
                 }
                 
-                // Get the selected server using our helper function
+                // Get the selected server using our helper function with enhanced debugging
                 const serverAlias = getSelectedServer();
                 
                 if (!serverAlias) {
@@ -339,39 +339,83 @@ queueBtn.addEventListener('click', async (e) => {
         return localStorage.getItem('stablequeue_api_secret') || '';
     }
     
-    // Function to get selected server from StableQueue tab or settings
+    // Function to get selected server from StableQueue tab with enhanced Gradio support
     function getSelectedServer() {
-        // Try multiple selectors to find the server dropdown
-        let serverDropdown = null;
-        const selectors = [
-            '#stablequeue select',
-            '[id*="stablequeue"] select',
-            'div[id*="stablequeue"] select',
-            '#component-* select', // Gradio component selector
-            '.gradio-dropdown select'
-        ];
+        const serverDropdown = document.querySelector('#stablequeue_server_dropdown');
         
-        for (const selector of selectors) {
-            try {
-                serverDropdown = document.querySelector(selector);
-                if (serverDropdown && serverDropdown.value && serverDropdown.value !== "Configure API key in settings") {
-                    console.log(`[${EXTENSION_NAME}] Found server dropdown with selector: ${selector}, value: ${serverDropdown.value}`);
-                    return serverDropdown.value;
+        if (!serverDropdown) {
+            console.error(`[${EXTENSION_NAME}] Server dropdown (#stablequeue_server_dropdown) not found.`);
+            return null;
+        }
+
+        // --- DETAILED LOGGING FOR DROPDOWN STATE ---
+        console.log(`[${EXTENSION_NAME}] --- Debugging Dropdown State ---`);
+        console.log(`[${EXTENSION_NAME}] Dropdown Element:`, serverDropdown);
+        console.log(`[${EXTENSION_NAME}] Element tagName: ${serverDropdown.tagName}`);
+        console.log(`[${EXTENSION_NAME}] Element className: ${serverDropdown.className}`);
+        console.log(`[${EXTENSION_NAME}] Element type: ${serverDropdown.type || 'undefined'}`);
+        
+        // Try to get the value using multiple approaches
+        let serverAlias = null;
+        
+        // Check if it's a standard select element
+        if (serverDropdown.tagName === 'SELECT') {
+            console.log(`[${EXTENSION_NAME}] Standard SELECT element found`);
+            serverAlias = serverDropdown.value;
+            console.log(`[${EXTENSION_NAME}] Dropdown Value: "${serverAlias}"`);
+            console.log(`[${EXTENSION_NAME}] Selected Index: ${serverDropdown.selectedIndex}`);
+            
+            if (serverDropdown.options && serverDropdown.options.length > 0) {
+                console.log(`[${EXTENSION_NAME}] Options count: ${serverDropdown.options.length}`);
+                if (serverDropdown.selectedIndex >= 0) {
+                    const selectedOpt = serverDropdown.options[serverDropdown.selectedIndex];
+                    console.log(`[${EXTENSION_NAME}] Selected Option: "${selectedOpt.text}" (value: "${selectedOpt.value}")`);
                 }
-            } catch (e) {
-                // Continue to next selector
+            }
+        } else {
+            console.log(`[${EXTENSION_NAME}] Non-standard element found (likely Gradio component)`);
+            console.log(`[${EXTENSION_NAME}] Element innerHTML:`, serverDropdown.innerHTML.substring(0, 200) + '...');
+            
+            // Try to find nested select element within the Gradio component
+            const nestedSelect = serverDropdown.querySelector('select');
+            if (nestedSelect) {
+                console.log(`[${EXTENSION_NAME}] Found nested SELECT element`);
+                serverAlias = nestedSelect.value;
+                console.log(`[${EXTENSION_NAME}] Nested select value: "${serverAlias}"`);
+                console.log(`[${EXTENSION_NAME}] Nested select options count: ${nestedSelect.options ? nestedSelect.options.length : 'undefined'}`);
+            } else {
+                console.log(`[${EXTENSION_NAME}] No nested SELECT element found`);
+                
+                // Try to find input element (some Gradio dropdowns use input)
+                const gradioInput = serverDropdown.querySelector('input');
+                if (gradioInput) {
+                    serverAlias = gradioInput.value;
+                    console.log(`[${EXTENSION_NAME}] Found input element with value: "${serverAlias}"`);
+                }
+                
+                const gradioOptions = serverDropdown.querySelectorAll('[role="option"]');
+                if (gradioOptions.length > 0) {
+                    console.log(`[${EXTENSION_NAME}] Found ${gradioOptions.length} role="option" elements`);
+                }
             }
         }
-        
-        // If no dropdown found or no valid selection, try to get from localStorage (settings)
-        const storedServer = localStorage.getItem('stablequeue_selected_server');
-        if (storedServer && storedServer !== "Configure API key in settings") {
-            console.log(`[${EXTENSION_NAME}] Using stored server from localStorage: ${storedServer}`);
-            return storedServer;
+        console.log(`[${EXTENSION_NAME}] --- End Debugging Dropdown State ---`);
+
+        console.log(`[${EXTENSION_NAME}] Final serverAlias extracted: "${serverAlias}"`);
+
+        // Validate the extracted server alias
+        if (!serverAlias || serverAlias.trim() === "") {
+            console.error(`[${EXTENSION_NAME}] Error: No server selected or dropdown value is empty. Final serverAlias: "${serverAlias}"`);
+            return null;
         }
         
-        console.log(`[${EXTENSION_NAME}] No server found in dropdown or localStorage`);
-        return null;
+        // Check for the default "Configure" text
+        if (serverAlias === "Configure API key in settings") {
+            console.error(`[${EXTENSION_NAME}] Error: "Configure API key in settings" was the effective value.`);
+            return null;
+        }
+        
+        return serverAlias;
     }
     
     // Function to monitor and save server selection

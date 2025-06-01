@@ -292,7 +292,8 @@ def create_stablequeue_tab():
                 server_alias = gr.Dropdown(
                     label="Target Server", 
                     choices=stablequeue_instance.servers_list if stablequeue_instance.servers_list else ["Configure API key in settings"],
-                    interactive=True
+                    interactive=True,
+                    elem_id="stablequeue_server_dropdown"
                 )
                 priority = gr.Slider(
                     minimum=1, 
