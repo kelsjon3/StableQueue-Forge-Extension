@@ -16,8 +16,8 @@ After installing the extension and restarting Forge, follow these steps to confi
 Enter the following settings in the StableQueue Integration section:
 
 - **StableQueue Server URL**: `http://192.168.73.124:8083`
-- **API Key**: `mk_1f37ad25b30674500a9d8c3e`
-- **API Secret**: `dc82a5d88ed78460eebfc13f8f21226e`
+- **API Key**: `mk_9a24c5006a4844e545ab8edd`
+- **API Secret**: `fcb588a3-6ede-458e-8673-1bd81f35bb6b`
 
 ### 3. Configure Bulk Job Settings (Optional)
 

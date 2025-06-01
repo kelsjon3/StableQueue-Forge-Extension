@@ -83,34 +83,24 @@ queueBtn.addEventListener('click', async (e) => {
         window.stablequeue_send_single = function(params) {
             const data = JSON.parse(JSON.stringify(params));
             
-            // Get the selected server from the StableQueue tab
-            const serverDropdown = document.querySelector('#stablequeue select');
-            if (!serverDropdown || serverDropdown.options.length === 0 || !serverDropdown.value) {
+            // Get the selected server using our helper function
+            const serverAlias = getSelectedServer();
+            
+            if (!serverAlias) {
                 params.notification = { text: `No server selected in StableQueue tab. Please select a server first.`, type: 'error' };
                 return params;
             }
             
-            const serverAlias = serverDropdown.value;
-            
-            // Check if it's the placeholder option
-            if (serverAlias === "Configure API key in settings") {
-                params.notification = { text: `Please configure API credentials in Settings → StableQueue Integration`, type: 'error' };
-                return params;
-            }
-            
             // Send job to StableQueue via the API
-            fetch(`${getStableQueueUrl()}/api/v2/generate`, {
+            fetch('/stablequeue/queue_job', {
                 method: 'POST',
                 headers: { 
-                    'Content-Type': 'application/json',
-                    'X-API-Key': getApiKey(),
-                    'X-API-Secret': getApiSecret()
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    app_type: 'forge',
-                    target_server_alias: serverAlias,
                     generation_params: data,
-                    source_info: `stablequeue_forge_extension_contextmenu_v${EXTENSION_VERSION}`
+                    server_alias: serverAlias,
+                    job_type: 'single'
                 })
             })
             .then(async (response) => {
@@ -122,9 +112,9 @@ queueBtn.addEventListener('click', async (e) => {
             })
             .then((data) => {
                 if (data.success) {
-                    params.notification = { text: `Job sent to StableQueue: ${data.stablequeue_job_id}`, type: 'success' };
+                    params.notification = { text: data.message, type: 'success' };
                 } else {
-                    params.notification = { text: `Error: ${data.error || 'Unknown error'}`, type: 'error' };
+                    params.notification = { text: `Error: ${data.message || 'Unknown error'}`, type: 'error' };
                 }
             })
             .catch(error => {
@@ -139,50 +129,36 @@ queueBtn.addEventListener('click', async (e) => {
         window.stablequeue_send_bulk = function(params) {
             const data = JSON.parse(JSON.stringify(params));
             
-            // Get the selected server from the StableQueue tab
-            const serverDropdown = document.querySelector('#stablequeue select');
-            if (!serverDropdown || serverDropdown.options.length === 0 || !serverDropdown.value) {
+            // Get the selected server using our helper function
+            const serverAlias = getSelectedServer();
+            
+            if (!serverAlias) {
                 params.notification = { text: `No server selected in StableQueue tab. Please select a server first.`, type: 'error' };
                 return params;
             }
             
-            const serverAlias = serverDropdown.value;
-            
-            // Check if it's the placeholder option
-            if (serverAlias === "Configure API key in settings") {
-                params.notification = { text: `Please configure API credentials in Settings → StableQueue Integration`, type: 'error' };
-                return params;
-            }
-            
-            // Get bulk job settings from shared opts
+            // Get bulk job settings - NO seed manipulation
             const bulkQuantity = parseInt(localStorage.getItem('stablequeue_bulk_quantity') || '10');
-            const seedVariation = localStorage.getItem('stablequeue_seed_variation') || 'random';
             const jobDelay = parseInt(localStorage.getItem('stablequeue_job_delay') || '5');
             
-            // Send bulk job to StableQueue via the API
-            fetch(`${getStableQueueUrl()}/api/v2/generate/bulk`, {
+            // Send bulk job to StableQueue via Forge backend
+            fetch('/stablequeue/queue_job', {
                 method: 'POST',
                 headers: { 
-                    'Content-Type': 'application/json',
-                    'X-API-Key': getApiKey(),
-                    'X-API-Secret': getApiSecret()
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    app_type: 'forge',
-                    target_server_alias: serverAlias,
-                    bulk_quantity: bulkQuantity,
-                    seed_variation: seedVariation,
-                    job_delay: jobDelay,
                     generation_params: data,
-                    source_info: `stablequeue_forge_extension_bulk_contextmenu_v${EXTENSION_VERSION}`
+                    server_alias: serverAlias,
+                    job_type: 'bulk'
                 })
             })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    params.notification = { text: `Bulk job sent to StableQueue: ${data.total_jobs} jobs queued`, type: 'success' };
+                    params.notification = { text: data.message, type: 'success' };
                 } else {
-                    params.notification = { text: `Error: ${data.error || 'Unknown error'}`, type: 'error' };
+                    params.notification = { text: `Error: ${data.message || 'Unknown error'}`, type: 'error' };
                 }
             })
             .catch(error => {
@@ -208,48 +184,30 @@ queueBtn.addEventListener('click', async (e) => {
                     return;
                 }
                 
-                // Get the selected server from the StableQueue tab
-                const serverDropdown = document.querySelector('#stablequeue select');
-                if (!serverDropdown || serverDropdown.options.length === 0 || !serverDropdown.value) {
+                // Get the selected server using our helper function
+                const serverAlias = getSelectedServer();
+                
+                if (!serverAlias) {
                     showNotification('No server selected in StableQueue tab. Please select a server first.', 'error');
                     reject(new Error('No server selected'));
                     return;
                 }
                 
-                const serverAlias = serverDropdown.value;
-                
-                // Check if it's the placeholder option
-                if (serverAlias === "Configure API key in settings") {
-                    showNotification('Please configure API credentials in Settings → StableQueue Integration', 'error');
-                    reject(new Error('API credentials not configured'));
-                    return;
-                }
-                
-                // Prepare request data
+                // Prepare request data for Forge backend
                 const requestData = {
-                    app_type: 'forge',
-                    target_server_alias: serverAlias,
                     generation_params: params,
-                    source_info: `stablequeue_forge_extension_${jobType}_v${EXTENSION_VERSION}`
+                    server_alias: serverAlias,
+                    job_type: jobType
                 };
                 
-                let endpoint = `${getStableQueueUrl()}/api/v2/generate`;
+                console.log(`[${EXTENSION_NAME}] Sending request to Forge backend`);
+                console.log(`[${EXTENSION_NAME}] Request data:`, requestData);
                 
-                if (jobType === 'bulk') {
-                    // Add bulk job specific parameters
-                    requestData.bulk_quantity = parseInt(localStorage.getItem('stablequeue_bulk_quantity') || '10');
-                    requestData.seed_variation = localStorage.getItem('stablequeue_seed_variation') || 'random';
-                    requestData.job_delay = parseInt(localStorage.getItem('stablequeue_job_delay') || '5');
-                    endpoint = `${getStableQueueUrl()}/api/v2/generate/bulk`;
-                }
-                
-                // Send to StableQueue API
-                fetch(endpoint, {
+                // Send to Forge backend API
+                fetch('/stablequeue/queue_job', {
                     method: 'POST',
                     headers: { 
-                        'Content-Type': 'application/json',
-                        'X-API-Key': getApiKey(),
-                        'X-API-Secret': getApiSecret()
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(requestData)
                 })
@@ -262,14 +220,10 @@ queueBtn.addEventListener('click', async (e) => {
                 })
                 .then(data => {
                     if (data.success) {
-                        if (jobType === 'bulk') {
-                            showNotification(`Bulk job sent to StableQueue: ${data.total_jobs} jobs queued`, 'success');
-                        } else {
-                            showNotification(`Job sent to StableQueue: ${data.stablequeue_job_id}`, 'success');
-                        }
+                        showNotification(data.message, 'success');
                         resolve(data);
                     } else {
-                        const errorMsg = `Error: ${data.error || 'Unknown error'}`;
+                        const errorMsg = `Error: ${data.message || 'Unknown error'}`;
                         showNotification(errorMsg, 'error');
                         reject(new Error(errorMsg));
                     }
@@ -301,7 +255,7 @@ queueBtn.addEventListener('click', async (e) => {
             if (promptTextarea) params.positive_prompt = promptTextarea.value;
             if (negativePromptTextarea) params.negative_prompt = negativePromptTextarea.value;
             
-            // Get basic parameters
+            // Get basic parameters - extract exactly what's in the UI without defaults
             const widthInput = document.querySelector(`#${tabId}_width input`);
             const heightInput = document.querySelector(`#${tabId}_height input`);
             const stepsInput = document.querySelector(`#${tabId}_steps input`);
@@ -310,20 +264,20 @@ queueBtn.addEventListener('click', async (e) => {
             const batchSizeInput = document.querySelector(`#${tabId}_batch_size input`);
             const batchCountInput = document.querySelector(`#${tabId}_batch_count input`);
             
-            if (widthInput) params.width = parseInt(widthInput.value) || 512;
-            if (heightInput) params.height = parseInt(heightInput.value) || 512;
-            if (stepsInput) params.steps = parseInt(stepsInput.value) || 20;
-            if (cfgInput) params.cfg_scale = parseFloat(cfgInput.value) || 7.0;
-            if (seedInput) {
-    const v = parseInt(seedInput.value, 10);
-    params.seed = Number.isNaN(v) ? -1 : v;
-}
-            if (batchSizeInput) params.batch_size = parseInt(batchSizeInput.value) || 1;
-            if (batchCountInput) params.batch_count = parseInt(batchCountInput.value) || 1;
+            if (widthInput && widthInput.value) params.width = parseInt(widthInput.value);
+            if (heightInput && heightInput.value) params.height = parseInt(heightInput.value);
+            if (stepsInput && stepsInput.value) params.steps = parseInt(stepsInput.value);
+            if (cfgInput && cfgInput.value) params.cfg_scale = parseFloat(cfgInput.value);
+            if (seedInput && seedInput.value) {
+                const v = parseInt(seedInput.value, 10);
+                if (!Number.isNaN(v)) params.seed = v;
+            }
+            if (batchSizeInput && batchSizeInput.value) params.batch_size = parseInt(batchSizeInput.value);
+            if (batchCountInput && batchCountInput.value) params.batch_count = parseInt(batchCountInput.value);
             
             // Get sampler
             const samplerDropdown = document.querySelector(`#${tabId}_sampling select`);
-            if (samplerDropdown) params.sampler_name = samplerDropdown.value;
+            if (samplerDropdown && samplerDropdown.value) params.sampler_name = samplerDropdown.value;
             
             return params;
         } catch (error) {
@@ -385,6 +339,73 @@ queueBtn.addEventListener('click', async (e) => {
         return localStorage.getItem('stablequeue_api_secret') || '';
     }
     
+    // Function to get selected server from StableQueue tab or settings
+    function getSelectedServer() {
+        // Try multiple selectors to find the server dropdown
+        let serverDropdown = null;
+        const selectors = [
+            '#stablequeue select',
+            '[id*="stablequeue"] select',
+            'div[id*="stablequeue"] select',
+            '#component-* select', // Gradio component selector
+            '.gradio-dropdown select'
+        ];
+        
+        for (const selector of selectors) {
+            try {
+                serverDropdown = document.querySelector(selector);
+                if (serverDropdown && serverDropdown.value && serverDropdown.value !== "Configure API key in settings") {
+                    console.log(`[${EXTENSION_NAME}] Found server dropdown with selector: ${selector}, value: ${serverDropdown.value}`);
+                    return serverDropdown.value;
+                }
+            } catch (e) {
+                // Continue to next selector
+            }
+        }
+        
+        // If no dropdown found or no valid selection, try to get from localStorage (settings)
+        const storedServer = localStorage.getItem('stablequeue_selected_server');
+        if (storedServer && storedServer !== "Configure API key in settings") {
+            console.log(`[${EXTENSION_NAME}] Using stored server from localStorage: ${storedServer}`);
+            return storedServer;
+        }
+        
+        console.log(`[${EXTENSION_NAME}] No server found in dropdown or localStorage`);
+        return null;
+    }
+    
+    // Function to monitor and save server selection
+    function monitorServerSelection() {
+        // Try to find the server dropdown and add change listener
+        const selectors = [
+            '#stablequeue select',
+            '[id*="stablequeue"] select',
+            'div[id*="stablequeue"] select'
+        ];
+        
+        for (const selector of selectors) {
+            try {
+                const dropdown = document.querySelector(selector);
+                if (dropdown && !dropdown.hasAttribute('data-stablequeue-monitored')) {
+                    dropdown.setAttribute('data-stablequeue-monitored', 'true');
+                    dropdown.addEventListener('change', function() {
+                        if (this.value && this.value !== "Configure API key in settings") {
+                            localStorage.setItem('stablequeue_selected_server', this.value);
+                            console.log(`[${EXTENSION_NAME}] Saved selected server to localStorage: ${this.value}`);
+                        }
+                    });
+                    console.log(`[${EXTENSION_NAME}] Added change listener to server dropdown`);
+                    break;
+                }
+            } catch (e) {
+                // Continue to next selector
+            }
+        }
+        
+        // Re-run this function periodically to catch dynamically created dropdowns
+        setTimeout(monitorServerSelection, 2000);
+    }
+    
     // Initialize when the DOM is fully loaded
     document.addEventListener('DOMContentLoaded', function() {
         console.log(`[${EXTENSION_NAME}] Extension JavaScript loaded`);
@@ -394,5 +415,8 @@ queueBtn.addEventListener('click', async (e) => {
         
         // Register context menu handlers
         registerContextMenuHandlers();
+        
+        // Monitor server selection
+        monitorServerSelection();
     });
 })();

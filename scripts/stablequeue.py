@@ -23,7 +23,6 @@ class StableQueue(scripts.Script):
         self.connection_verified = False
         self.servers_list = []
         self.bulk_job_quantity = shared.opts.data.get("stablequeue_bulk_quantity", 10)
-        self.seed_variation = shared.opts.data.get("stablequeue_seed_variation", "Random")
         self.job_delay = shared.opts.data.get("stablequeue_job_delay", 5)
         
         # Initialize servers list if API key is available
@@ -181,7 +180,6 @@ class StableQueue(scripts.Script):
         if job_type == "bulk":
             # Add bulk job specific parameters
             request_data["bulk_quantity"] = self.bulk_job_quantity
-            request_data["seed_variation"] = self.seed_variation.lower()
             request_data["job_delay"] = self.job_delay
             request_data["source_info"] = f"stablequeue_forge_extension_bulk_v{VERSION}"
             
@@ -362,10 +360,6 @@ def register_stablequeue_settings():
         10, "Bulk Job Quantity", section=section
     ))
     
-    shared.opts.add_option("stablequeue_seed_variation", shared.OptionInfo(
-        "Random", "Seed Variation Method", section=section
-    ))
-    
     shared.opts.add_option("stablequeue_job_delay", shared.OptionInfo(
         5, "Delay Between Jobs (seconds)", section=section
     ))
@@ -375,4 +369,111 @@ def register_stablequeue_settings():
     ))
 
 # Register settings callback
-script_callbacks.on_ui_settings(register_stablequeue_settings) 
+script_callbacks.on_ui_settings(register_stablequeue_settings)
+
+# Global function that JavaScript can call
+def queue_job_from_javascript(generation_params_json, server_alias, job_type="single"):
+    """
+    Function that can be called from JavaScript to queue jobs
+    """
+    try:
+        import json
+        
+        # Parse the JSON parameters
+        generation_params = json.loads(generation_params_json)
+        
+        # Create a StableQueue instance to access settings and methods
+        stablequeue_instance = StableQueue()
+        
+        # Create a mock processing object that the existing method expects
+        class MockP:
+            def __init__(self, params):
+                # Basic parameters
+                self.prompt = params.get('positive_prompt', '')
+                self.negative_prompt = params.get('negative_prompt', '')
+                self.width = params.get('width', 512)
+                self.height = params.get('height', 512)
+                self.steps = params.get('steps', 20)
+                self.cfg_scale = params.get('cfg_scale', 7)
+                self.sampler_name = params.get('sampler_name', 'Euler')
+                self.seed = params.get('seed', -1)
+                self.batch_size = params.get('batch_size', 1)
+                self.n_iter = params.get('batch_count', 1)
+                
+                # Mock sd_model for checkpoint
+                self.sd_model = type('obj', (object,), {
+                    'name': params.get('checkpoint_name', '')
+                })()
+                
+                # Optional parameters
+                self.restore_faces = params.get('restore_faces', False)
+                self.enable_hr = params.get('enable_hr', False)
+                if self.enable_hr:
+                    self.hr_scale = params.get('hr_scale', 2.0)
+                    self.hr_upscaler = params.get('hr_upscaler', 'Latent')
+                    self.hr_second_pass_steps = params.get('hr_second_pass_steps', 0)
+                
+                self.subseed = params.get('subseed', -1)
+                self.subseed_strength = params.get('subseed_strength', 0)
+        
+        # Create mock processing object
+        mock_p = MockP(generation_params)
+        
+        # Call the existing queue method
+        success, message = stablequeue_instance.queue_in_stablequeue(
+            mock_p, 
+            server_alias, 
+            priority=5,  # Default priority
+            job_type=job_type
+        )
+        
+        return json.dumps({
+            "success": success,
+            "message": message
+        })
+        
+    except Exception as e:
+        return json.dumps({
+            "success": False,
+            "message": f"Error: {str(e)}"
+        })
+
+# Make the function available globally for JavaScript to call
+def setup_javascript_api():
+    """Setup API endpoints that JavaScript can call"""
+    try:
+        from modules import shared
+        from fastapi import FastAPI
+        from fastapi.responses import JSONResponse
+        import json
+        
+        # Get the FastAPI app instance from shared
+        if hasattr(shared, 'demo') and hasattr(shared.demo, 'app'):
+            app = shared.demo.app
+            
+            @app.post("/stablequeue/queue_job")
+            async def queue_job_api(request):
+                try:
+                    # Get request data
+                    data = await request.json()
+                    generation_params_json = json.dumps(data.get('generation_params', {}))
+                    server_alias = data.get('server_alias', '')
+                    job_type = data.get('job_type', 'single')
+                    
+                    # Call our queue function
+                    result_json = queue_job_from_javascript(generation_params_json, server_alias, job_type)
+                    result = json.loads(result_json)
+                    
+                    return JSONResponse(content=result)
+                    
+                except Exception as e:
+                    return JSONResponse(
+                        content={"success": False, "message": f"API Error: {str(e)}"}, 
+                        status_code=500
+                    )
+                    
+    except Exception as e:
+        print(f"[StableQueue] Could not setup JavaScript API: {e}")
+
+# Register the setup function
+script_callbacks.on_app_started(setup_javascript_api) 
