@@ -189,7 +189,8 @@ queueBtn.addEventListener('click', async (e) => {
                 
                 window.fetch = async function(url, options) {
                     // Check if this is the txt2img or img2img API call
-                    if (!intercepted && url.includes('/sdapi/v1/') && (url.includes('txt2img') || url.includes('img2img')) && options.method === 'POST') {
+                    const method = (options && options.method ? options.method : 'GET').toUpperCase();
+ if (!intercepted && url.includes('/sdapi/v1/') && /(txt2img|img2img)/.test(url) && method === 'POST') {
                         intercepted = true;
                         
                         // Restore original fetch immediately

@@ -438,7 +438,10 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
                     "message": message
                 })
             else:
-                error_msg = f"Error: {response.status_code} - {response.json().get('error', 'Unknown error')}"
+                try:
+                    error_msg = f"Error: {response.status_code} - {response.json().get('error', 'Unknown error')}"
+                except ValueError:
+                    error_msg = f"Error: {response.status_code} - response not JSON"
                 return json.dumps({
                     "success": False,
                     "message": error_msg
