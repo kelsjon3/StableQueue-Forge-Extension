@@ -343,6 +343,14 @@
                 const originalXHR = window.XMLHttpRequest;
                 
                 let intercepted = false;
+                let interceptionResolve = null;
+                let interceptionReject = null;
+                
+                // Create a promise to wait for interception
+                const interceptionPromise = new Promise((res, rej) => {
+                    interceptionResolve = res;
+                    interceptionReject = rej;
+                });
                 
                 // Enhanced fetch interception
                 window.fetch = async function(url, options) {
@@ -358,6 +366,10 @@
                         
                         intercepted = true;
                         console.log(`[${EXTENSION_NAME}] 🎯 API CALL INTERCEPTED: ${url}`);
+                        
+                        // Immediately restore interceptors to prevent infinite loops
+                        window.fetch = originalFetch;
+                        window.XMLHttpRequest = originalXHR;
                         
                         try {
                             let apiPayload;
@@ -379,10 +391,6 @@
                                 job_type: jobType
                             };
                             
-                            // Restore fetch before making our call
-                            window.fetch = originalFetch;
-                            window.XMLHttpRequest = originalXHR;
-                            
                             const response = await originalFetch('/stablequeue/queue_job', {
                                 method: 'POST',
                                 headers: { 
@@ -400,32 +408,25 @@
                             
                             if (data.success) {
                                 showNotification(data.message, 'success');
-                                resolve(data);
+                                interceptionResolve(data);
                             } else {
                                 const errorMsg = `Error: ${data.message || 'Unknown error'}`;
                                 showNotification(errorMsg, 'error');
-                                reject(new Error(errorMsg));
+                                interceptionReject(new Error(errorMsg));
                             }
                             
-                            // Return a mock response to prevent Forge from continuing
-                            return new Response(JSON.stringify({ success: false, message: 'Intercepted by StableQueue' }), {
-                                status: 200,
-                                headers: { 'Content-Type': 'application/json' }
-                            });
-                            
                         } catch (error) {
-                            window.fetch = originalFetch;
-                            window.XMLHttpRequest = originalXHR;
                             console.error(`[${EXTENSION_NAME}] Error processing intercepted request:`, error);
                             const errorMsg = `Error: ${error.message}`;
                             showNotification(errorMsg, 'error');
-                            reject(error);
-                            
-                            return new Response(JSON.stringify({ success: false, message: error.message }), {
-                                status: 500,
-                                headers: { 'Content-Type': 'application/json' }
-                            });
+                            interceptionReject(error);
                         }
+                        
+                        // Return a mock response to prevent Forge from continuing
+                        return new Response(JSON.stringify({ success: false, message: 'Intercepted by StableQueue' }), {
+                            status: 200,
+                            headers: { 'Content-Type': 'application/json' }
+                        });
                     }
                     
                     // Not a target URL, pass through normally
@@ -456,6 +457,10 @@
                             intercepted = true;
                             console.log(`[${EXTENSION_NAME}] 🎯 XHR API CALL INTERCEPTED: ${requestUrl}`);
                             
+                            // Restore interceptors
+                            window.fetch = originalFetch;
+                            window.XMLHttpRequest = originalXHR;
+                            
                             // Handle XHR interception similar to fetch
                             setTimeout(async () => {
                                 try {
@@ -474,9 +479,6 @@
                                         job_type: jobType
                                     };
                                     
-                                    window.fetch = originalFetch;
-                                    window.XMLHttpRequest = originalXHR;
-                                    
                                     const response = await originalFetch('/stablequeue/queue_job', {
                                         method: 'POST',
                                         headers: { 
@@ -494,20 +496,18 @@
                                     
                                     if (data.success) {
                                         showNotification(data.message, 'success');
-                                        resolve(data);
+                                        interceptionResolve(data);
                                     } else {
                                         const errorMsg = `Error: ${data.message || 'Unknown error'}`;
                                         showNotification(errorMsg, 'error');
-                                        reject(new Error(errorMsg));
+                                        interceptionReject(new Error(errorMsg));
                                     }
                                     
                                 } catch (error) {
-                                    window.fetch = originalFetch;
-                                    window.XMLHttpRequest = originalXHR;
                                     console.error(`[${EXTENSION_NAME}] Error processing intercepted XHR:`, error);
                                     const errorMsg = `Error: ${error.message}`;
                                     showNotification(errorMsg, 'error');
-                                    reject(error);
+                                    interceptionReject(error);
                                 }
                             }, 0);
                             
@@ -541,20 +541,34 @@
                     window.XMLHttpRequest = originalXHR;
                     showNotification('Generate button not found', 'error');
                     reject(new Error('Generate button not found'));
+                    return;
                 }
                 
-                // Timeout for API call interception
-                setTimeout(() => {
-                    if (!intercepted) {
-                        window.fetch = originalFetch;
-                        window.XMLHttpRequest = originalXHR;
-                        console.error(`[${EXTENSION_NAME}] Timeout: No API call intercepted after 5 seconds`);
-                        
+                // Wait for interception or timeout
+                try {
+                    const result = await Promise.race([
+                        interceptionPromise,
+                        new Promise((_, rej) => setTimeout(() => {
+                            rej(new Error('Timeout: No API call intercepted after 5 seconds'));
+                        }, 5000))
+                    ]);
+                    
+                    resolve(result);
+                } catch (error) {
+                    window.fetch = originalFetch;
+                    window.XMLHttpRequest = originalXHR;
+                    
+                    if (error.message.includes('Timeout')) {
+                        console.error(`[${EXTENSION_NAME}] ${error.message}`);
                         const errorMsg = `Failed to intercept API call. This indicates Forge is not making the expected API request. Please ensure you're using Forge's standard generation process.`;
                         showNotification(errorMsg, 'error');
-                        reject(new Error(errorMsg));
+                    } else {
+                        console.error(`[${EXTENSION_NAME}] Error in queueCurrentJob:`, error);
+                        showNotification(`Error: ${error.message}`, 'error');
                     }
-                }, 5000);
+                    
+                    reject(error);
+                }
                 
             } catch (error) {
                 console.error(`[${EXTENSION_NAME}] Error in queueCurrentJob:`, error);
