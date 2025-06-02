@@ -241,55 +241,9 @@ class StableQueue(scripts.Script):
             return False, f"Connection error: {str(e)}"
     
     def ui(self, is_img2img):
-        """Create the UI components for the StableQueue extension"""
-        with gr.Group():
-            with gr.Accordion("StableQueue", open=True):
-                with FormRow():
-                    server_alias = gr.Dropdown(
-                        label="Target Server", 
-                        choices=self.servers_list if self.servers_list else ["Configure API key in settings"],
-                        interactive=True
-                    )
-                    priority = gr.Slider(
-                        minimum=1, 
-                        maximum=10, 
-                        value=5, 
-                        step=1, 
-                        label="Priority"
-                    )
-                
-                with FormRow():
-                    refresh_btn = gr.Button("🔄 Refresh Servers")
-                
-                status_html = gr.HTML("<div>Not connected to StableQueue</div>")
-        
-        # Refresh button to update server list
-        def refresh_servers():
-            if self.fetch_servers():
-                return gr.Dropdown.update(choices=self.servers_list), f"<div style='color:green'>Refreshed server list. Found {len(self.servers_list)} server(s).</div>"
-            else:
-                return gr.Dropdown.update(choices=["Configure API key in settings"]), "<div style='color:red'>Failed to refresh server list. Check API key in settings.</div>"
-        
-        refresh_btn.click(
-            fn=refresh_servers,
-            inputs=[],
-            outputs=[server_alias, status_html]
-        )
-        
-        # Information about how to use the extension
-        gr.HTML("""
-        <div style='margin-top: 20px; padding: 15px; background-color: rgba(0,100,200,0.1); border-radius: 8px;'>
-            <h3>How to Use StableQueue:</h3>
-            <ul>
-                <li><strong>Queue Jobs:</strong> Use the 'Queue in StableQueue' buttons next to the Generate buttons in txt2img/img2img tabs</li>
-                <li><strong>Bulk Jobs:</strong> Use the 'Bulk Queue' buttons for multiple job submission</li>
-                <li><strong>Context Menu:</strong> Right-click on generation results to send to StableQueue</li>
-                <li><strong>Settings:</strong> Configure API credentials in Settings → StableQueue Integration</li>
-            </ul>
-        </div>
-        """)
-        
-        return [server_alias, priority, status_html]
+        """This UI method is disabled - we use create_stablequeue_tab() instead"""
+        # Return empty components to avoid conflicts with the standalone tab
+        return []
     
     def after_component(self, component, **kwargs):
         """Add a 'Queue in StableQueue' button after the Generate button"""
@@ -312,60 +266,78 @@ js_callbacks = []
 # Create StableQueue tab
 def create_stablequeue_tab():
     """Create the StableQueue tab in the main interface"""
-    stablequeue_instance = StableQueue()
-    
-    with gr.Blocks(analytics_enabled=False) as stablequeue_interface:
-        with gr.Row():
-            with gr.Column():
-                server_alias = gr.Dropdown(
-                    label="Target Server", 
-                    choices=stablequeue_instance.servers_list if stablequeue_instance.servers_list else ["Configure API key in settings"],
-                    interactive=True,
-                    elem_id="stablequeue_server_dropdown"
-                )
-                priority = gr.Slider(
-                    minimum=1, 
-                    maximum=10, 
-                    value=5, 
-                    step=1, 
-                    label="Priority"
-                )
+    try:
+        print(f"[StableQueue] create_stablequeue_tab() called - Creating tab interface...")
         
-        with gr.Row():
-            refresh_btn = gr.Button("🔄 Refresh Servers")
+        stablequeue_instance = StableQueue()
+        print(f"[StableQueue] StableQueue instance created successfully")
         
-        status_html = gr.HTML("<div>Not connected to StableQueue</div>")
+        with gr.Blocks(analytics_enabled=False) as stablequeue_interface:
+            print(f"[StableQueue] Creating gradio interface...")
+            
+            with gr.Row():
+                with gr.Column():
+                    server_alias = gr.Dropdown(
+                        label="Target Server", 
+                        choices=stablequeue_instance.servers_list if stablequeue_instance.servers_list else ["Configure API key in settings"],
+                        interactive=True,
+                        elem_id="stablequeue_server_dropdown"
+                    )
+                    priority = gr.Slider(
+                        minimum=1, 
+                        maximum=10, 
+                        value=5, 
+                        step=1, 
+                        label="Priority"
+                    )
+            
+            with gr.Row():
+                refresh_btn = gr.Button("🔄 Refresh Servers")
+            
+            status_html = gr.HTML("<div>Not connected to StableQueue</div>")
+            
+            # Refresh button to update server list
+            def refresh_servers():
+                print(f"[StableQueue] Refresh servers button clicked")
+                if stablequeue_instance.fetch_servers():
+                    print(f"[StableQueue] Server refresh successful: {len(stablequeue_instance.servers_list)} servers")
+                    return gr.Dropdown.update(choices=stablequeue_instance.servers_list), f"<div style='color:green'>Refreshed server list. Found {len(stablequeue_instance.servers_list)} server(s).</div>"
+                else:
+                    print(f"[StableQueue] Server refresh failed")
+                    return gr.Dropdown.update(choices=["Configure API key in settings"]), "<div style='color:red'>Failed to refresh server list. Check API key in settings.</div>"
+            
+            refresh_btn.click(
+                fn=refresh_servers,
+                inputs=[],
+                outputs=[server_alias, status_html]
+            )
+            
+            # Information about how to use the extension
+            gr.HTML("""
+            <div style='margin-top: 20px; padding: 15px; background-color: rgba(0,100,200,0.1); border-radius: 8px;'>
+                <h3>How to Use StableQueue:</h3>
+                <ul>
+                    <li><strong>Queue Jobs:</strong> Use the 'Queue in StableQueue' buttons next to the Generate buttons in txt2img/img2img tabs</li>
+                    <li><strong>Bulk Jobs:</strong> Use the 'Bulk Queue' buttons for multiple job submission</li>
+                    <li><strong>Context Menu:</strong> Right-click on generation results to send to StableQueue</li>
+                    <li><strong>Settings:</strong> Configure API credentials in Settings → StableQueue Integration</li>
+                </ul>
+            </div>
+            """)
         
-        # Refresh button to update server list
-        def refresh_servers():
-            if stablequeue_instance.fetch_servers():
-                return gr.Dropdown.update(choices=stablequeue_instance.servers_list), f"<div style='color:green'>Refreshed server list. Found {len(stablequeue_instance.servers_list)} server(s).</div>"
-            else:
-                return gr.Dropdown.update(choices=["Configure API key in settings"]), "<div style='color:red'>Failed to refresh server list. Check API key in settings.</div>"
+        print(f"[StableQueue] Gradio interface created successfully - Returning tab tuple")
+        return [(stablequeue_interface, "StableQueue", "stablequeue")]
         
-        refresh_btn.click(
-            fn=refresh_servers,
-            inputs=[],
-            outputs=[server_alias, status_html]
-        )
-        
-        # Information about how to use the extension
-        gr.HTML("""
-        <div style='margin-top: 20px; padding: 15px; background-color: rgba(0,100,200,0.1); border-radius: 8px;'>
-            <h3>How to Use StableQueue:</h3>
-            <ul>
-                <li><strong>Queue Jobs:</strong> Use the 'Queue in StableQueue' buttons next to the Generate buttons in txt2img/img2img tabs</li>
-                <li><strong>Bulk Jobs:</strong> Use the 'Bulk Queue' buttons for multiple job submission</li>
-                <li><strong>Context Menu:</strong> Right-click on generation results to send to StableQueue</li>
-                <li><strong>Settings:</strong> Configure API credentials in Settings → StableQueue Integration</li>
-            </ul>
-        </div>
-        """)
-    
-    return [(stablequeue_interface, "StableQueue", "stablequeue")]
+    except Exception as e:
+        print(f"[StableQueue] ERROR in create_stablequeue_tab: {e}")
+        import traceback
+        print(f"[StableQueue] Full traceback: {traceback.format_exc()}")
+        return []
 
 # Register the tab
+print(f"[StableQueue] Registering StableQueue tab with script_callbacks.on_ui_tabs...")
 script_callbacks.on_ui_tabs(create_stablequeue_tab)
+print(f"[StableQueue] Tab registration completed")
 
 # Register settings
 def register_stablequeue_settings():
@@ -640,10 +612,10 @@ def setup_javascript_api(demo=None, app=None):
                 
             except Exception as e:
                 print(f"[StableQueue] Error in queue_job_api: {e}")
-                    return JSONResponse(
-                        content={"success": False, "message": f"API Error: {str(e)}"}, 
-                        status_code=500
-                    )
+                return JSONResponse(
+                    content={"success": False, "message": f"API Error: {str(e)}"}, 
+                    status_code=500
+                )
         
         print(f"[StableQueue] Successfully registered /stablequeue/queue_job endpoint")
         api_setup_completed = True
