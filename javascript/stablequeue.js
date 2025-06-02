@@ -345,6 +345,7 @@
                 let intercepted = false;
                 let interceptionResolve = null;
                 let interceptionReject = null;
+                let capturedPayloads = []; // Store all payloads to find the complete one
                 
                 // Create a promise to wait for interception
                 const interceptionPromise = new Promise((res, rej) => {
@@ -352,11 +353,37 @@
                     interceptionReject = rej;
                 });
                 
-                // Enhanced fetch interception - SYNCHRONOUS BLOCKING
+                // Enhanced fetch interception with comprehensive logging
                 window.fetch = async function(url, options) {
-                    console.log(`[${EXTENSION_NAME}] 🌐 INTERCEPTED FETCH: ${options?.method || 'GET'} ${url}`);
+                    console.log(`[${EXTENSION_NAME}] 🌐 FETCH: ${options?.method || 'GET'} ${url}`);
                     
-                    // Intercept both /sdapi/v1/ and Gradio endpoints
+                    // Log ALL POST requests for debugging
+                    if (options?.method === 'POST' && options.body) {
+                        try {
+                            const bodyData = JSON.parse(options.body);
+                            console.log(`[${EXTENSION_NAME}] 📋 FETCH POST Body Keys:`, Object.keys(bodyData));
+                            
+                            // Check if this looks like a complete generation request
+                            if (bodyData.prompt || bodyData.positive_prompt || 
+                                (bodyData.data && Array.isArray(bodyData.data))) {
+                                console.log(`[${EXTENSION_NAME}] 🎯 POTENTIAL GENERATION REQUEST FOUND!`);
+                                console.log(`[${EXTENSION_NAME}] 📝 URL: ${url}`);
+                                console.log(`[${EXTENSION_NAME}] 📝 Has prompt:`, !!(bodyData.prompt || bodyData.positive_prompt));
+                                console.log(`[${EXTENSION_NAME}] 📝 Has data array:`, !!(bodyData.data && Array.isArray(bodyData.data)));
+                                console.log(`[${EXTENSION_NAME}] 📝 Body sample:`, JSON.stringify(bodyData).substring(0, 200) + '...');
+                                
+                                capturedPayloads.push({
+                                    url: url,
+                                    payload: bodyData,
+                                    timestamp: Date.now()
+                                });
+                            }
+                        } catch (e) {
+                            console.log(`[${EXTENSION_NAME}] Could not parse POST body:`, e.message);
+                        }
+                    }
+                    
+                    // Intercept specific API endpoints
                     if ((url.includes('/sdapi/v1/txt2img') || 
                          url.includes('/sdapi/v1/img2img') ||
                          url.includes('/api/') || 
@@ -368,29 +395,75 @@
                         
                         console.log(`[${EXTENSION_NAME}] 🎯 API CALL INTERCEPTED: ${url}`);
                         
-                        // If this is the first interception, send to StableQueue
+                        // If this is the first interception, analyze and send to StableQueue
                         if (!intercepted) {
                             intercepted = true;
-                            console.log(`[${EXTENSION_NAME}] 🎯 FIRST CALL - BLOCKING FORGE EXECUTION - Processing with StableQueue...`);
+                            console.log(`[${EXTENSION_NAME}] 🎯 FIRST CALL - ANALYZING CAPTURED PAYLOADS...`);
                             
                             try {
+                                let bestPayload = null;
                                 let apiPayload;
                                 
-                                if (url.includes('/sdapi/v1/')) {
-                                    // Direct /sdapi/v1/ call - use as-is
-                                    apiPayload = JSON.parse(options.body);
-                                    console.log(`[${EXTENSION_NAME}] Using /sdapi/v1/ payload directly`);
-                                } else {
-                                    // Gradio call - send raw payload to preserve ALL parameters
-                                    const gradioPayload = JSON.parse(options.body);
-                                    console.log(`[${EXTENSION_NAME}] Sending raw Gradio payload to preserve all extension parameters`);
-                                    apiPayload = {
-                                        type: 'gradio',
-                                        raw_payload: gradioPayload,
-                                        tab_id: tabId,
-                                        url: url
-                                    };
+                                // Find the most complete payload from what we've captured
+                                for (const captured of capturedPayloads) {
+                                    if (captured.url.includes('/sdapi/v1/')) {
+                                        console.log(`[${EXTENSION_NAME}] ✅ Found /sdapi/v1/ payload - using as complete request`);
+                                        bestPayload = captured;
+                                        break;
+                                    }
                                 }
+                                
+                                if (bestPayload && bestPayload.url.includes('/sdapi/v1/')) {
+                                    // We found a complete /sdapi/v1/ payload
+                                    apiPayload = bestPayload.payload;
+                                    console.log(`[${EXTENSION_NAME}] Using complete /sdapi/v1/ payload`);
+                                    console.log(`[${EXTENSION_NAME}] Complete payload prompt:`, apiPayload.prompt || 'NOT FOUND');
+                                    console.log(`[${EXTENSION_NAME}] Complete payload keys:`, Object.keys(apiPayload));
+                                } else {
+                                    // Fallback to current request if no /sdapi/v1/ found
+                                    console.log(`[${EXTENSION_NAME}] No /sdapi/v1/ payload found, using current request`);
+                                    
+                                    if (url.includes('/sdapi/v1/')) {
+                                        // Direct /sdapi/v1/ call - use as-is
+                                        apiPayload = JSON.parse(options.body);
+                                        console.log(`[${EXTENSION_NAME}] Using current /sdapi/v1/ payload directly`);
+                                    } else {
+                                        // This is incomplete - REJECT the job
+                                        console.error(`[${EXTENSION_NAME}] ❌ INCOMPLETE CAPTURE - No complete /sdapi/v1/ payload found!`);
+                                        const errorMsg = 'Incomplete parameter capture detected. Cannot queue job with missing parameters.';
+                                        showNotification(errorMsg, 'error');
+                                        interceptionReject(new Error(errorMsg));
+                                        
+                                        // Return error response to block Forge
+                                        return new Response(JSON.stringify({ 
+                                            success: false, 
+                                            message: errorMsg,
+                                            error: 'INCOMPLETE_CAPTURE'
+                                        }), {
+                                            status: 422,
+                                            headers: { 'Content-Type': 'application/json' }
+                                        });
+                                    }
+                                }
+                                
+                                // Validate that we have essential parameters
+                                if (!apiPayload.prompt && !apiPayload.positive_prompt) {
+                                    console.error(`[${EXTENSION_NAME}] ❌ VALIDATION FAILED - No prompt found in payload!`);
+                                    const errorMsg = 'No prompt detected in generation parameters. Please check your input and try again.';
+                                    showNotification(errorMsg, 'error');
+                                    interceptionReject(new Error(errorMsg));
+                                    
+                                    return new Response(JSON.stringify({ 
+                                        success: false, 
+                                        message: errorMsg,
+                                        error: 'NO_PROMPT'
+                                    }), {
+                                        status: 422,
+                                        headers: { 'Content-Type': 'application/json' }
+                                    });
+                                }
+                                
+                                console.log(`[${EXTENSION_NAME}] ✅ VALIDATION PASSED - Complete payload with prompt: "${(apiPayload.prompt || apiPayload.positive_prompt || '').substring(0, 50)}..."`);
                                 
                                 const requestData = {
                                     api_payload: apiPayload,
@@ -398,7 +471,7 @@
                                     job_type: jobType
                                 };
                                 
-                                console.log(`[${EXTENSION_NAME}] 📤 Sending to StableQueue...`);
+                                console.log(`[${EXTENSION_NAME}] 📤 Sending complete validated payload to StableQueue...`);
                                 
                                 // SYNCHRONOUS BLOCKING: Wait for StableQueue response before returning
                                 const response = await originalFetch('/stablequeue/queue_job', {

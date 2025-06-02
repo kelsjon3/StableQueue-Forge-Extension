@@ -250,6 +250,110 @@ class StableQueue(scripts.Script):
         # This will be used to add buttons directly to the UI outside our tab
         pass
 
+    def queue_job_from_javascript(self, api_payload, server_alias, job_type):
+        """Queue a job from JavaScript, handling both /sdapi/v1/ and Gradio payloads"""
+        try:
+            print(f"[StableQueue] /stablequeue/queue_job endpoint called")
+            print(f"[StableQueue] Processing job: server={server_alias}, type={job_type}")
+            
+            # Log payload structure for debugging
+            if isinstance(api_payload, dict):
+                print(f"[StableQueue] Payload type: {type(api_payload).__name__}")
+                print(f"[StableQueue] Payload keys: {list(api_payload.keys())}")
+                
+                # Check for complete /sdapi/v1/ payload
+                if 'prompt' in api_payload or 'positive_prompt' in api_payload:
+                    print(f"[StableQueue] ✅ Complete /sdapi/v1/ payload detected")
+                    prompt = api_payload.get('prompt') or api_payload.get('positive_prompt', '')
+                    print(f"[StableQueue] Prompt: \"{prompt[:100]}{'...' if len(prompt) > 100 else ''}\"")
+                    print(f"[StableQueue] Parameters count: {len(api_payload)} keys")
+                    
+                    # Validate essential parameters
+                    if not prompt.strip():
+                        return {
+                            'success': False,
+                            'message': 'Empty prompt detected. Please enter a prompt and try again.'
+                        }
+                    
+                    generation_params = api_payload  # Use the complete payload directly
+                    
+                else:
+                    print(f"[StableQueue] ❌ Incomplete payload - missing prompt/positive_prompt")
+                    return {
+                        'success': False,
+                        'message': 'Incomplete generation parameters. Missing prompt or essential data.'
+                    }
+            else:
+                print(f"[StableQueue] ❌ Invalid payload format: {type(api_payload)}")
+                return {
+                    'success': False,
+                    'message': 'Invalid payload format received.'
+                }
+            
+            print(f"[StableQueue] Using credentials - URL: {self.stablequeue_url}, API Key: ***, API Secret: ***")
+            
+            # Prepare data for StableQueue backend
+            backend_data = {
+                'app_type': 'forge',
+                'target_server_alias': server_alias,
+                'generation_params': generation_params,
+                'priority': 1,
+                'source_info': 'forge_extension'
+            }
+            
+            print(f"[StableQueue] 📤 Sending complete payload to StableQueue backend...")
+            
+            # Send to StableQueue backend
+            headers = {
+                'X-API-Key': self.api_key,
+                'X-API-Secret': self.api_secret,
+                'Content-Type': 'application/json'
+            }
+            
+            response = requests.post(
+                f"{self.stablequeue_url}/api/v2/generate",
+                json=backend_data,
+                headers=headers,
+                timeout=30
+            )
+            
+            if response.status_code == 202:
+                result = response.json()
+                job_id = result.get('mobilesd_job_id', 'unknown')
+                queue_pos = result.get('queue_position', 'unknown')
+                
+                message = f"✅ Job queued successfully! Job ID: {job_id}, Queue position: {queue_pos}"
+                print(f"[StableQueue] {message}")
+                
+                return {
+                    'success': True,
+                    'message': message,
+                    'job_id': job_id,
+                    'queue_position': queue_pos
+                }
+            else:
+                error_text = response.text
+                print(f"[StableQueue] ❌ Backend error {response.status_code}: {error_text}")
+                
+                return {
+                    'success': False,
+                    'message': f"Backend error ({response.status_code}): {error_text[:200]}"
+                }
+                
+        except requests.exceptions.RequestException as e:
+            error_msg = f"Connection error: {str(e)}"
+            print(f"[StableQueue] ❌ {error_msg}")
+            return {
+                'success': False,
+                'message': error_msg
+            }
+        except Exception as e:
+            error_msg = f"Unexpected error: {str(e)}"
+            print(f"[StableQueue] ❌ {error_msg}")
+            return {
+                'success': False,
+                'message': error_msg
+            }
 
 # Register context menu items if enabled
 def context_menu_entries():
@@ -372,139 +476,6 @@ def register_stablequeue_settings():
 # Register settings callback
 script_callbacks.on_ui_settings(register_stablequeue_settings)
 
-# Global function that JavaScript can call to capture the complete API payload
-def queue_job_from_javascript(api_payload_json, server_alias, job_type="single"):
-    """
-    Function that receives the complete API payload that would go to /sdapi/v1/txt2img
-    This ensures we capture ALL parameters including extension parameters
-    """
-    try:
-        import json
-        
-        # Parse the complete API payload
-        api_payload = json.loads(api_payload_json)
-        
-        # Log received parameters for debugging
-        print(f"[StableQueue] Complete API payload received: {api_payload}")
-        
-        # Handle different payload types - always send raw to backend for processing
-        if isinstance(api_payload, dict) and api_payload.get('type') == 'gradio':
-            print(f"[StableQueue] Forwarding raw Gradio payload to backend for processing")
-            # Extract the raw Gradio payload
-            raw_gradio = api_payload.get('raw_payload', {})
-            tab_id = api_payload.get('tab_id', 'unknown')
-            url = api_payload.get('url', 'unknown')
-            
-            print(f"[StableQueue] Raw Gradio payload from {tab_id} tab, URL: {url}")
-            print(f"[StableQueue] Gradio data length: {len(raw_gradio.get('data', []))}")
-            
-            # Send the complete raw payload to the backend for processing
-            # The backend will handle the conversion to preserve ALL extension parameters
-            generation_params = {
-                'type': 'gradio_raw',
-                'raw_payload': raw_gradio,
-                'tab_id': tab_id,
-                'source_url': url,
-                'forge_session_hash': raw_gradio.get('session_hash', ''),
-                'fn_index': raw_gradio.get('fn_index', 0)
-            }
-        else:
-            print(f"[StableQueue] Forwarding standard payload to backend")
-            # This is a standard /sdapi/v1/ payload - forward as-is
-            generation_params = api_payload
-        
-        # Get current settings directly (more reliable than creating new instance)
-        current_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
-        current_api_key = shared.opts.data.get("stablequeue_api_key", "")
-        current_api_secret = shared.opts.data.get("stablequeue_api_secret", "")
-        current_bulk_quantity = shared.opts.data.get("stablequeue_bulk_quantity", 10)
-        current_job_delay = shared.opts.data.get("stablequeue_job_delay", 5)
-        
-        print(f"[StableQueue] Using credentials - URL: {current_url}, API Key: {'***' if current_api_key else '(empty)'}, API Secret: {'***' if current_api_secret else '(empty)'}")
-        
-        if not current_api_key or not current_api_secret:
-            return json.dumps({
-                "success": False,
-                "message": "API credentials not configured. Please set API key and secret in Settings → StableQueue Integration."
-            })
-        
-        # Prepare request body for StableQueue using the complete API payload
-        request_data = {
-            "app_type": "forge",
-            "target_server_alias": server_alias,
-            "generation_params": generation_params,  # Use the complete payload directly
-            "source_info": f"stablequeue_forge_extension_v{VERSION}"
-        }
-        
-        # Add priority
-        request_data["priority"] = 5  # Default priority
-        
-        # Check if it's a bulk job
-        if job_type == "bulk":
-            # Add bulk job specific parameters
-            request_data["bulk_quantity"] = current_bulk_quantity
-            request_data["job_delay"] = current_job_delay
-            request_data["source_info"] = f"stablequeue_forge_extension_bulk_v{VERSION}"
-            
-            endpoint = f"{current_url}/api/v2/generate/bulk"
-        else:
-            endpoint = f"{current_url}/api/v2/generate"
-        
-        # Send to StableQueue API directly
-        try:
-            print(f"[StableQueue] DEBUG: JS API sending request to {endpoint}")
-            print(f"[StableQueue] DEBUG: JS API Key: {current_api_key[:8]}...")
-            print(f"[StableQueue] DEBUG: JS API Secret: {current_api_secret[:8]}...")
-            print(f"[StableQueue] DEBUG: JS Request data: {request_data}")
-            
-            response = requests.post(
-                endpoint,
-                json=request_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-API-Key": current_api_key,
-                    "X-API-Secret": current_api_secret
-                },
-                timeout=30
-            )
-            
-            print(f"[StableQueue] DEBUG: JS Response status: {response.status_code}")
-            print(f"[StableQueue] DEBUG: JS Response headers: {response.headers}")
-            print(f"[StableQueue] DEBUG: JS Response text: {response.text}")
-            
-            if response.status_code in [200, 201, 202]:
-                data = response.json()
-                if job_type == "bulk":
-                    message = f"Bulk job submitted successfully. {data.get('total_jobs', 0)} jobs queued."
-                else:
-                    job_id = data.get("mobilesd_job_id")
-                    message = f"Job queued successfully. ID: {job_id}"
-                
-                return json.dumps({
-                    "success": True,
-                    "message": message
-                })
-            else:
-                try:
-                    error_msg = f"Error: {response.status_code} - {response.json().get('error', 'Unknown error')}"
-                except ValueError:
-                    error_msg = f"Error: {response.status_code} - response not JSON"
-                return json.dumps({
-                    "success": False,
-                    "message": error_msg
-                })
-        except Exception as e:
-            return json.dumps({
-                "success": False,
-                "message": f"Connection error: {str(e)}"
-            })
-        
-    except Exception as e:
-        return json.dumps({
-            "success": False,
-            "message": f"Error: {str(e)}"
-        })
-
 # Alternative approach: Use Forge's API system instead of direct FastAPI access
 def setup_javascript_api(demo=None, app=None):
     """Setup API endpoints using Forge's API system"""
@@ -537,8 +508,7 @@ def setup_javascript_api(demo=None, app=None):
                     
                     print(f"[StableQueue] Processing job: server={server_alias}, type={job_type}")
                     
-                    result_json = queue_job_from_javascript(api_payload_json, server_alias, job_type)
-                    result = json.loads(result_json)
+                    result = stablequeue_instance.queue_job_from_javascript(api_payload, server_alias, job_type)
                     
                     print(f"[StableQueue] Job result: {result}")
                     
@@ -629,8 +599,7 @@ def setup_javascript_api(demo=None, app=None):
                 print(f"[StableQueue] Processing job: server={server_alias}, type={job_type}")
                 
                 # Call our queue function with the complete API payload
-                result_json = queue_job_from_javascript(api_payload_json, server_alias, job_type)
-                result = json.loads(result_json)
+                result = stablequeue_instance.queue_job_from_javascript(api_payload, server_alias, job_type)
                 
                 print(f"[StableQueue] Job result: {result}")
                 
