@@ -181,7 +181,21 @@ class StableQueueScript(scripts.Script):
         
         # Model information
         if hasattr(p, 'sd_model') and p.sd_model:
-            params["checkpoint_name"] = getattr(p.sd_model, 'sd_checkpoint_info', {}).get('name', '')
+            # Handle CheckpointInfo object properly
+            checkpoint_info = getattr(p.sd_model, 'sd_checkpoint_info', None)
+            if checkpoint_info:
+                if hasattr(checkpoint_info, 'name'):
+                    params["checkpoint_name"] = checkpoint_info.name
+                elif hasattr(checkpoint_info, 'model_name'):
+                    params["checkpoint_name"] = checkpoint_info.model_name
+                elif hasattr(checkpoint_info, 'filename'):
+                    import os
+                    params["checkpoint_name"] = os.path.basename(checkpoint_info.filename)
+                else:
+                    params["checkpoint_name"] = str(checkpoint_info)
+            else:
+                params["checkpoint_name"] = ''
+            
             params["model_hash"] = getattr(p.sd_model, 'sd_model_hash', '')
         
         # Extension parameters from script_args
