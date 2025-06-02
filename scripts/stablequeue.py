@@ -1,3 +1,9 @@
+# Add at the very beginning after imports
+print("=" * 50)
+print("[StableQueue] Python extension is loading...")
+print("[StableQueue] Extension file path:", __file__)
+print("=" * 50)
+
 import json
 import modules.scripts as scripts
 import gradio as gr
@@ -9,9 +15,16 @@ from modules import shared
 from modules.ui_components import FormRow, FormGroup, ToolButton
 from modules import script_callbacks
 
+print("[StableQueue] All imports successful")
+
 VERSION = "1.0.0"
 EXTENSION_NAME = "StableQueue Extension"
 DEFAULT_SERVER_URL = "http://192.168.73.124:8083"
+
+print(f"[StableQueue] Extension initialized - Version {VERSION}")
+
+# Global flag to track if API is set up
+api_setup_completed = False
 
 class StableQueue(scripts.Script):
     def __init__(self):
@@ -458,15 +471,59 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
             "message": f"Error: {str(e)}"
         })
 
-# Make the function available globally for JavaScript to call
+# Alternative approach: Use Forge's API system instead of direct FastAPI access
 def setup_javascript_api():
-    """Setup API endpoints that JavaScript can call"""
+    """Setup API endpoints using Forge's API system"""
+    global api_setup_completed
+    
+    if api_setup_completed:
+        print(f"[StableQueue] API already set up, skipping...")
+        return
+        
     print(f"[StableQueue] Setting up JavaScript API endpoints...")
     
     try:
+        # Try to use modules.api if available (newer Forge versions)
+        try:
+            from modules import api
+            print(f"[StableQueue] Found modules.api, attempting to register endpoint...")
+            
+            # Register our endpoint with the API
+            def queue_job_endpoint():
+                from flask import request, jsonify
+                try:
+                    print(f"[StableQueue] queue_job_endpoint called via modules.api")
+                    
+                    data = request.get_json()
+                    api_payload_json = json.dumps(data.get('api_payload', {}))
+                    server_alias = data.get('server_alias', '')
+                    job_type = data.get('job_type', 'single')
+                    
+                    print(f"[StableQueue] Processing job: server={server_alias}, type={job_type}")
+                    
+                    result_json = queue_job_from_javascript(api_payload_json, server_alias, job_type)
+                    result = json.loads(result_json)
+                    
+                    print(f"[StableQueue] Job result: {result}")
+                    
+                    return jsonify(result)
+                    
+                except Exception as e:
+                    print(f"[StableQueue] Error in queue_job_endpoint: {e}")
+                    return jsonify({"success": False, "message": f"API Error: {str(e)}"}), 500
+            
+            # Try to register the endpoint
+            if hasattr(api, 'app') and hasattr(api.app, 'route'):
+                api.app.route('/stablequeue/queue_job', methods=['POST'])(queue_job_endpoint)
+                print(f"[StableQueue] Successfully registered endpoint via modules.api")
+                api_setup_completed = True
+                return
+                
+        except ImportError:
+            print(f"[StableQueue] modules.api not available, trying FastAPI approach...")
+        
+        # Fallback to FastAPI approach
         from modules import shared
-        from fastapi import FastAPI, Request
-        from fastapi.responses import JSONResponse
         import json
         
         print(f"[StableQueue] Checking for FastAPI app...")
@@ -495,9 +552,27 @@ def setup_javascript_api():
                 print(f"[StableQueue] shared.demo attributes: {dir(shared.demo)}")
             else:
                 print(f"[StableQueue] shared attributes: {dir(shared)}")
+            
+            # Try one more time after a delay
+            def retry_setup():
+                print(f"[StableQueue] Retrying API setup after delay...")
+                setup_javascript_api()
+            
+            # Schedule retry in 5 seconds
+            import threading
+            timer = threading.Timer(5.0, retry_setup)
+            timer.start()
             return
         
         print(f"[StableQueue] FastAPI app found: {type(app)}")
+        
+        # Import FastAPI components
+        try:
+            from fastapi import Request
+            from fastapi.responses import JSONResponse
+        except ImportError:
+            print(f"[StableQueue] FastAPI not available")
+            return
         
         # Register the endpoint
         @app.post("/stablequeue/queue_job")
@@ -529,6 +604,7 @@ def setup_javascript_api():
                 )
         
         print(f"[StableQueue] Successfully registered /stablequeue/queue_job endpoint")
+        api_setup_completed = True
                 
     except Exception as e:
         print(f"[StableQueue] Could not setup JavaScript API: {e}")
@@ -536,6 +612,7 @@ def setup_javascript_api():
         print(f"[StableQueue] Full error trace: {traceback.format_exc()}")
 
 # Register the setup function with multiple callbacks to ensure it runs
+print(f"[StableQueue] Registering API setup callbacks...")
 script_callbacks.on_app_started(setup_javascript_api)
 
 # Also try to register when UI starts
@@ -544,4 +621,8 @@ def setup_api_on_ui_start():
     print(f"[StableQueue] Attempting API setup on UI start...")
     setup_javascript_api()
 
-script_callbacks.on_ui_started(setup_api_on_ui_start) 
+script_callbacks.on_ui_started(setup_api_on_ui_start)
+
+# Also try immediate setup
+print(f"[StableQueue] Attempting immediate API setup...")
+setup_javascript_api() 
