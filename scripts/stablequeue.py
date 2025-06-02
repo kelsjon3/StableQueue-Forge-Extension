@@ -400,8 +400,20 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
         # Log received parameters for debugging
         print(f"[StableQueue] Complete API payload received: {api_payload}")
         
-        # Create a StableQueue instance to access settings and methods
-        stablequeue_instance = StableQueue()
+        # Get current settings directly (more reliable than creating new instance)
+        current_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
+        current_api_key = shared.opts.data.get("stablequeue_api_key", "")
+        current_api_secret = shared.opts.data.get("stablequeue_api_secret", "")
+        current_bulk_quantity = shared.opts.data.get("stablequeue_bulk_quantity", 10)
+        current_job_delay = shared.opts.data.get("stablequeue_job_delay", 5)
+        
+        print(f"[StableQueue] Using credentials - URL: {current_url}, API Key: {'***' if current_api_key else '(empty)'}, API Secret: {'***' if current_api_secret else '(empty)'}")
+        
+        if not current_api_key or not current_api_secret:
+            return json.dumps({
+                "success": False,
+                "message": "API credentials not configured. Please set API key and secret in Settings → StableQueue Integration."
+            })
         
         # Prepare request body for StableQueue using the complete API payload
         request_data = {
@@ -417,13 +429,13 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
         # Check if it's a bulk job
         if job_type == "bulk":
             # Add bulk job specific parameters
-            request_data["bulk_quantity"] = stablequeue_instance.bulk_job_quantity
-            request_data["job_delay"] = stablequeue_instance.job_delay
+            request_data["bulk_quantity"] = current_bulk_quantity
+            request_data["job_delay"] = current_job_delay
             request_data["source_info"] = f"stablequeue_forge_extension_bulk_v{VERSION}"
             
-            endpoint = f"{stablequeue_instance.stablequeue_url}/api/v2/generate/bulk"
+            endpoint = f"{current_url}/api/v2/generate/bulk"
         else:
-            endpoint = f"{stablequeue_instance.stablequeue_url}/api/v2/generate"
+            endpoint = f"{current_url}/api/v2/generate"
         
         # Send to StableQueue API directly
         try:
@@ -432,8 +444,8 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
                 json=request_data,
                 headers={
                     "Content-Type": "application/json",
-                    "X-API-Key": stablequeue_instance.api_key,
-                    "X-API-Secret": stablequeue_instance.api_secret
+                    "X-API-Key": current_api_key,
+                    "X-API-Secret": current_api_secret
                 },
                 timeout=30
             )
