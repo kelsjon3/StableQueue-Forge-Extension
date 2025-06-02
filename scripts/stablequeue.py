@@ -387,6 +387,32 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
         # Log received parameters for debugging
         print(f"[StableQueue] Complete API payload received: {api_payload}")
         
+        # Handle different payload types
+        if isinstance(api_payload, dict) and api_payload.get('type') == 'gradio':
+            print(f"[StableQueue] Processing raw Gradio payload to preserve all extension parameters")
+            # Extract the raw Gradio payload
+            raw_gradio = api_payload.get('raw_payload', {})
+            tab_id = api_payload.get('tab_id', 'unknown')
+            url = api_payload.get('url', 'unknown')
+            
+            print(f"[StableQueue] Raw Gradio payload from {tab_id} tab, URL: {url}")
+            print(f"[StableQueue] Gradio data length: {len(raw_gradio.get('data', []))}")
+            
+            # Send the raw Gradio payload to StableQueue for processing
+            # StableQueue backend can handle the conversion or pass it through
+            generation_params = {
+                'type': 'gradio_raw',
+                'raw_payload': raw_gradio,
+                'tab_id': tab_id,
+                'source_url': url,
+                'forge_session_hash': raw_gradio.get('session_hash', ''),
+                'fn_index': raw_gradio.get('fn_index', 0)
+            }
+        else:
+            print(f"[StableQueue] Processing standard SDAPI payload")
+            # This is a standard /sdapi/v1/ payload or already converted
+            generation_params = api_payload
+        
         # Get current settings directly (more reliable than creating new instance)
         current_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
         current_api_key = shared.opts.data.get("stablequeue_api_key", "")
@@ -406,7 +432,7 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
         request_data = {
             "app_type": "forge",
             "target_server_alias": server_alias,
-            "generation_params": api_payload,  # Use the complete payload directly
+            "generation_params": generation_params,  # Use the complete payload directly
             "source_info": f"stablequeue_forge_extension_v{VERSION}"
         }
         

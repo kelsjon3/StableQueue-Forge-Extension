@@ -381,10 +381,15 @@
                                     apiPayload = JSON.parse(options.body);
                                     console.log(`[${EXTENSION_NAME}] Using /sdapi/v1/ payload directly`);
                                 } else {
-                                    // Gradio call - convert to /sdapi/v1/ format
+                                    // Gradio call - send raw payload to preserve ALL parameters
                                     const gradioPayload = JSON.parse(options.body);
-                                    apiPayload = await convertGradioToSDAPI(gradioPayload, tabId);
-                                    console.log(`[${EXTENSION_NAME}] Converted Gradio payload to /sdapi/v1/ format`);
+                                    console.log(`[${EXTENSION_NAME}] Sending raw Gradio payload to preserve all extension parameters`);
+                                    apiPayload = {
+                                        type: 'gradio',
+                                        raw_payload: gradioPayload,
+                                        tab_id: tabId,
+                                        url: url
+                                    };
                                 }
                                 
                                 const requestData = {
@@ -500,7 +505,13 @@
                                             apiPayload = JSON.parse(data);
                                         } else {
                                             const gradioPayload = JSON.parse(data);
-                                            apiPayload = await convertGradioToSDAPI(gradioPayload, tabId);
+                                            console.log(`[${EXTENSION_NAME}] XHR: Sending raw Gradio payload to preserve all extension parameters`);
+                                            apiPayload = {
+                                                type: 'gradio',
+                                                raw_payload: gradioPayload,
+                                                tab_id: tabId,
+                                                url: requestUrl
+                                            };
                                         }
                                         
                                         const requestData = {
