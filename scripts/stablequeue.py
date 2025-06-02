@@ -479,7 +479,7 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
                 if job_type == "bulk":
                     message = f"Bulk job submitted successfully. {data.get('total_jobs', 0)} jobs queued."
                 else:
-                    job_id = data.get("stablequeue_job_id")
+                    job_id = data.get("mobilesd_job_id")
                     message = f"Job queued successfully. ID: {job_id}"
                 
                 return json.dumps({
