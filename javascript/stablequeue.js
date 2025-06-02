@@ -134,18 +134,35 @@
             return null;
         }
         
-        // Handle Gradio dropdown
-        const selectedOption = serverDropdown.querySelector('input[type="radio"]:checked');
-        if (selectedOption) {
-            return selectedOption.value;
+        // Handle Gradio dropdown - look for the input field that contains the selected value
+        const inputField = serverDropdown.querySelector('input[type="text"], input[type="hidden"]');
+        if (inputField && inputField.value && inputField.value.trim() !== '' && inputField.value !== 'Configure API key in settings') {
+            console.log(`[${EXTENSION_NAME}] Found selected server: ${inputField.value}`);
+            return inputField.value;
         }
         
-        // Fallback: try to get from select element
-        if (serverDropdown.tagName === 'SELECT') {
+        // Try to get from the gradio component's value attribute
+        if (serverDropdown.value && serverDropdown.value !== 'Configure API key in settings') {
+            console.log(`[${EXTENSION_NAME}] Found selected server via value attribute: ${serverDropdown.value}`);
             return serverDropdown.value;
         }
         
-        console.error(`[${EXTENSION_NAME}] Could not determine selected server`);
+        // Check if there's a gradio_app reference we can use
+        try {
+            const gradioApp = document.querySelector('#gradio-app');
+            if (gradioApp && gradioApp._gradio_app) {
+                // Try to get the value through Gradio's internal state
+                const component = gradioApp._gradio_app.get_component('stablequeue_server_dropdown');
+                if (component && component.value && component.value !== 'Configure API key in settings') {
+                    console.log(`[${EXTENSION_NAME}] Found selected server via Gradio component: ${component.value}`);
+                    return component.value;
+                }
+            }
+        } catch (e) {
+            // Ignore errors from Gradio internals
+        }
+        
+        console.error(`[${EXTENSION_NAME}] Could not determine selected server - no valid server selected`);
         return null;
     }
 
@@ -274,5 +291,27 @@
         addQueueButtons();
         registerContextMenuHandlers();
     }
+
+    // Debug function to inspect dropdown structure
+    window.stablequeue_debug_dropdown = function() {
+        const dropdown = document.querySelector('#stablequeue_server_dropdown');
+        if (!dropdown) {
+            console.log('Dropdown not found');
+            return;
+        }
+        
+        console.log('Dropdown element:', dropdown);
+        console.log('Dropdown HTML:', dropdown.outerHTML);
+        console.log('Dropdown value:', dropdown.value);
+        console.log('All inputs inside dropdown:', dropdown.querySelectorAll('input'));
+        console.log('All selects inside dropdown:', dropdown.querySelectorAll('select'));
+        
+        const inputs = dropdown.querySelectorAll('input');
+        inputs.forEach((input, i) => {
+            console.log(`Input ${i}:`, input, 'value:', input.value, 'type:', input.type);
+        });
+        
+        return dropdown;
+    };
 
 })(); 
