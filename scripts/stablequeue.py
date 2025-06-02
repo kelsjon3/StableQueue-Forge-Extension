@@ -472,9 +472,11 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
         })
 
 # Alternative approach: Use Forge's API system instead of direct FastAPI access
-def setup_javascript_api():
+def setup_javascript_api(demo=None, app=None):
     """Setup API endpoints using Forge's API system"""
     global api_setup_completed
+    
+    print(f"[StableQueue] setup_javascript_api called with demo={demo}, app={app}")
     
     if api_setup_completed:
         print(f"[StableQueue] API already set up, skipping...")
@@ -528,23 +530,27 @@ def setup_javascript_api():
         
         print(f"[StableQueue] Checking for FastAPI app...")
         
-        # Try multiple ways to get the FastAPI app
-        app = None
-        
-        # Method 1: Check shared.demo.app
-        if hasattr(shared, 'demo') and hasattr(shared.demo, 'app'):
-            app = shared.demo.app
-            print(f"[StableQueue] Found FastAPI app via shared.demo.app")
-        
-        # Method 2: Check if there's a direct app reference
-        elif hasattr(shared, 'app'):
-            app = shared.app
-            print(f"[StableQueue] Found FastAPI app via shared.app")
-        
-        # Method 3: Try to get from gradio app
-        elif hasattr(shared, 'demo') and hasattr(shared.demo, 'fastapi_app'):
-            app = shared.demo.fastapi_app
-            print(f"[StableQueue] Found FastAPI app via shared.demo.fastapi_app")
+        # First check if we got the app passed as parameter
+        if app is not None:
+            print(f"[StableQueue] Using FastAPI app passed as parameter: {type(app)}")
+        else:
+            # Try multiple ways to get the FastAPI app
+            print(f"[StableQueue] No app parameter, searching for FastAPI app...")
+            
+            # Method 1: Check shared.demo.app
+            if hasattr(shared, 'demo') and hasattr(shared.demo, 'app'):
+                app = shared.demo.app
+                print(f"[StableQueue] Found FastAPI app via shared.demo.app")
+            
+            # Method 2: Check if there's a direct app reference
+            elif hasattr(shared, 'app'):
+                app = shared.app
+                print(f"[StableQueue] Found FastAPI app via shared.app")
+            
+            # Method 3: Try to get from gradio app
+            elif hasattr(shared, 'demo') and hasattr(shared.demo, 'fastapi_app'):
+                app = shared.demo.fastapi_app
+                print(f"[StableQueue] Found FastAPI app via shared.demo.fastapi_app")
         
         if app is None:
             print(f"[StableQueue] Could not find FastAPI app. Available shared attributes:")
@@ -615,13 +621,13 @@ def setup_javascript_api():
 print(f"[StableQueue] Registering API setup callbacks...")
 script_callbacks.on_app_started(setup_javascript_api)
 
-# Also try to register when UI starts
-def setup_api_on_ui_start():
-    """Alternative setup method when UI starts"""
-    print(f"[StableQueue] Attempting API setup on UI start...")
-    setup_javascript_api()
-
-script_callbacks.on_ui_started(setup_api_on_ui_start)
+# Remove on_ui_started as it doesn't exist in this Forge version
+# def setup_api_on_ui_start():
+#     """Alternative setup method when UI starts"""
+#     print(f"[StableQueue] Attempting API setup on UI start...")
+#     setup_javascript_api()
+# 
+# script_callbacks.on_ui_started(setup_api_on_ui_start)
 
 # Also try immediate setup
 print(f"[StableQueue] Attempting immediate API setup...")
