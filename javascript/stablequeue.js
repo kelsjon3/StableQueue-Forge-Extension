@@ -568,9 +568,120 @@
     async function convertGradioToSDAPI(gradioPayload, tabId) {
         console.log(`[${EXTENSION_NAME}] Converting Gradio payload:`, gradioPayload);
         
-        // TODO: Implement proper Gradio to SDAPI conversion
-        // For now, reject since we don't have complete conversion logic
-        throw new Error("Gradio to SDAPI conversion not yet implemented. Please use direct SDAPI calls or wait for full implementation.");
+        try {
+            // Gradio payloads are typically arrays with function call data
+            // The structure is usually: { fn_index: number, data: [...], session_hash: string }
+            
+            if (!gradioPayload || !gradioPayload.data || !Array.isArray(gradioPayload.data)) {
+                throw new Error("Invalid Gradio payload structure - missing data array");
+            }
+            
+            const gradioData = gradioPayload.data;
+            console.log(`[${EXTENSION_NAME}] Gradio data array length: ${gradioData.length}`);
+            console.log(`[${EXTENSION_NAME}] Gradio data preview:`, gradioData.slice(0, 10));
+            
+            // Initialize SDAPI payload with defaults
+            const sdapiPayload = {
+                prompt: "",
+                negative_prompt: "",
+                styles: [],
+                seed: -1,
+                subseed: -1,
+                subseed_strength: 0,
+                steps: 20,
+                sampler_name: "Euler a",
+                width: 512,
+                height: 512,
+                cfg_scale: 7.0,
+                batch_size: 1,
+                n_iter: 1,
+                restore_faces: false,
+                tiling: false,
+                send_images: true,
+                save_images: true,
+                override_settings: {},
+                script_name: null,
+                script_args: []
+            };
+            
+            // Extract parameters from Gradio data array
+            // Note: Gradio array positions may vary by version/extensions
+            // We'll use defensive extraction with fallbacks
+            
+            try {
+                // Common Gradio parameter positions (may need adjustment based on actual payloads)
+                if (gradioData[0] && typeof gradioData[0] === 'string') {
+                    sdapiPayload.prompt = gradioData[0];
+                }
+                
+                if (gradioData[1] && typeof gradioData[1] === 'string') {
+                    sdapiPayload.negative_prompt = gradioData[1];
+                }
+                
+                // Extract numeric parameters with fallbacks
+                if (gradioData[2] && typeof gradioData[2] === 'number') {
+                    sdapiPayload.steps = gradioData[2];
+                }
+                
+                if (gradioData[3] && typeof gradioData[3] === 'string') {
+                    sdapiPayload.sampler_name = gradioData[3];
+                }
+                
+                if (gradioData[4] && typeof gradioData[4] === 'number') {
+                    sdapiPayload.cfg_scale = gradioData[4];
+                }
+                
+                if (gradioData[5] && typeof gradioData[5] === 'number') {
+                    sdapiPayload.width = gradioData[5];
+                }
+                
+                if (gradioData[6] && typeof gradioData[6] === 'number') {
+                    sdapiPayload.height = gradioData[6];
+                }
+                
+                if (gradioData[7] && typeof gradioData[7] === 'number') {
+                    sdapiPayload.seed = gradioData[7];
+                }
+                
+                // Look for extension-specific data in the remaining array elements
+                // Extensions like ControlNet typically add their data to the end of the array
+                for (let i = 8; i < gradioData.length; i++) {
+                    const item = gradioData[i];
+                    
+                    // Check for ControlNet data (usually objects or arrays)
+                    if (item && typeof item === 'object') {
+                        // If we find extension data, preserve it in script_args
+                        if (sdapiPayload.script_args.length === 0) {
+                            sdapiPayload.script_name = "extension_data";
+                        }
+                        sdapiPayload.script_args.push(item);
+                    }
+                    
+                    // Check for style presets, models, etc.
+                    if (typeof item === 'string' && item.includes('.safetensors') || item.includes('.ckpt')) {
+                        sdapiPayload.override_settings.sd_model_checkpoint = item;
+                    }
+                }
+                
+            } catch (extractError) {
+                console.warn(`[${EXTENSION_NAME}] Error extracting some parameters:`, extractError);
+                // Continue with what we have - partial extraction is better than complete failure
+            }
+            
+            console.log(`[${EXTENSION_NAME}] Converted SDAPI payload:`, sdapiPayload);
+            
+            // Validate required fields
+            if (!sdapiPayload.prompt && !sdapiPayload.negative_prompt) {
+                console.warn(`[${EXTENSION_NAME}] Warning: No prompts found in conversion. This may indicate a parsing issue.`);
+            }
+            
+            return sdapiPayload;
+            
+        } catch (error) {
+            console.error(`[${EXTENSION_NAME}] Error in Gradio to SDAPI conversion:`, error);
+            console.error(`[${EXTENSION_NAME}] Original Gradio payload:`, gradioPayload);
+            throw new Error(`Gradio conversion failed: ${error.message}. Please check console for details.`);
+        }
     }
     
     // NOTE: UI extraction removed - we only accept complete API payloads
