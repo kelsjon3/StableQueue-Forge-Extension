@@ -543,51 +543,16 @@
                     reject(new Error('Generate button not found'));
                 }
                 
-                // Timeout with fallback to UI extraction
-                setTimeout(async () => {
+                // Timeout for API call interception
+                setTimeout(() => {
                     if (!intercepted) {
                         window.fetch = originalFetch;
                         window.XMLHttpRequest = originalXHR;
-                        console.log(`[${EXTENSION_NAME}] Timeout: No API call intercepted, using UI extraction fallback`);
+                        console.error(`[${EXTENSION_NAME}] Timeout: No API call intercepted after 5 seconds`);
                         
-                        try {
-                            // Fallback: extract parameters directly from UI
-                            const apiPayload = await extractParametersFromUI(tabId);
-                            const requestData = {
-                                api_payload: apiPayload,
-                                server_alias: serverAlias,
-                                job_type: jobType
-                            };
-                            
-                            const response = await originalFetch('/stablequeue/queue_job', {
-                                method: 'POST',
-                                headers: { 
-                                    'Content-Type': 'application/json'
-                                },
-                                body: JSON.stringify(requestData)
-                            });
-                            
-                            if (!response.ok) {
-                                const text = await response.text();
-                                throw new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
-                            }
-                            
-                            const data = await response.json();
-                            
-                            if (data.success) {
-                                showNotification(`${data.message} (using UI extraction)`, 'success');
-                                resolve(data);
-                            } else {
-                                const errorMsg = `Error: ${data.message || 'Unknown error'}`;
-                                showNotification(errorMsg, 'error');
-                                reject(new Error(errorMsg));
-                            }
-                        } catch (error) {
-                            console.error(`[${EXTENSION_NAME}] Error with UI extraction fallback:`, error);
-                            const errorMsg = `Connection error: ${error.message}`;
-                            showNotification(errorMsg, 'error');
-                            reject(error);
-                        }
+                        const errorMsg = `Failed to intercept API call. This indicates Forge is not making the expected API request. Please ensure you're using Forge's standard generation process.`;
+                        showNotification(errorMsg, 'error');
+                        reject(new Error(errorMsg));
                     }
                 }, 5000);
                 
@@ -603,79 +568,13 @@
     async function convertGradioToSDAPI(gradioPayload, tabId) {
         console.log(`[${EXTENSION_NAME}] Converting Gradio payload:`, gradioPayload);
         
-        // For now, fall back to UI extraction since Gradio payloads are complex
-        // In the future, we could add specific conversion logic here
-        return await extractParametersFromUI(tabId);
+        // TODO: Implement proper Gradio to SDAPI conversion
+        // For now, reject since we don't have complete conversion logic
+        throw new Error("Gradio to SDAPI conversion not yet implemented. Please use direct SDAPI calls or wait for full implementation.");
     }
     
-    // Fallback function to extract parameters from UI elements
-    async function extractParametersFromUI(tabId) {
-        console.log(`[${EXTENSION_NAME}] Extracting parameters from UI for ${tabId}`);
-        
-        try {
-            // Basic parameters that we can extract from UI
-            const prompt = document.querySelector(`#${tabId}_prompt textarea`)?.value || '';
-            const negativePrompt = document.querySelector(`#${tabId}_neg_prompt textarea`)?.value || '';
-            
-            // Try to get steps, cfg, width, height with multiple selector strategies
-            const steps = parseInt(
-                document.querySelector(`#${tabId}_steps input`)?.value ||
-                document.querySelector(`[data-testid="${tabId}_steps"] input`)?.value ||
-                '20'
-            );
-            const cfgScale = parseFloat(
-                document.querySelector(`#${tabId}_cfg_scale input`)?.value ||
-                document.querySelector(`[data-testid="${tabId}_cfg_scale"] input`)?.value ||
-                '7.0'
-            );
-            const width = parseInt(
-                document.querySelector(`#${tabId}_width input`)?.value ||
-                document.querySelector(`[data-testid="${tabId}_width"] input`)?.value ||
-                '512'
-            );
-            const height = parseInt(
-                document.querySelector(`#${tabId}_height input`)?.value ||
-                document.querySelector(`[data-testid="${tabId}_height"] input`)?.value ||
-                '512'
-            );
-            
-            // Try to get sampler
-            const samplerDropdown = document.querySelector(`#${tabId}_sampling select`) ||
-                                  document.querySelector(`[data-testid="${tabId}_sampling"] select`);
-            const samplerName = samplerDropdown?.value || 'Euler a';
-            
-            // Basic payload structure for /sdapi/v1/txt2img
-            const apiPayload = {
-                prompt: prompt,
-                negative_prompt: negativePrompt,
-                steps: steps,
-                cfg_scale: cfgScale,
-                width: width,
-                height: height,
-                sampler_name: samplerName,
-                batch_size: 1,
-                n_iter: 1,
-                seed: -1,
-                subseed: -1,
-                subseed_strength: 0,
-                restore_faces: false,
-                tiling: false,
-                send_images: true,
-                save_images: true
-            };
-            
-            console.log(`[${EXTENSION_NAME}] Extracted basic UI parameters:`, apiPayload);
-            
-            // TODO: Add extraction for extension parameters
-            // This is where we'd need to add logic to capture ControlNet, regional prompting, etc.
-            
-            return apiPayload;
-            
-        } catch (error) {
-            console.error(`[${EXTENSION_NAME}] Error extracting parameters from UI:`, error);
-            throw error;
-        }
-    }
+    // NOTE: UI extraction removed - we only accept complete API payloads
+    // This ensures all extension parameters (ControlNet, etc.) are properly captured
     
     // Add "Queue in StableQueue" button next to the Generate button
     function addQueueButtons() {
