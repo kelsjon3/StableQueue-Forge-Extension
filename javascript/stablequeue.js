@@ -125,45 +125,82 @@
         }
     }
 
-    // Get selected server from StableQueue tab
     function getSelectedServer() {
         const serverDropdown = document.querySelector('#stablequeue_server_dropdown');
         
         if (!serverDropdown) {
-            console.error(`[${EXTENSION_NAME}] Server dropdown not found`);
+            console.error(`[${EXTENSION_NAME}] Server dropdown (#stablequeue_server_dropdown) not found.`);
+            return null;
+        }
+
+        // --- DETAILED LOGGING FOR DROPDOWN STATE ---
+        console.log(`[${EXTENSION_NAME}] --- Debugging Dropdown State ---`);
+        console.log(`[${EXTENSION_NAME}] Dropdown Element:`, serverDropdown);
+        console.log(`[${EXTENSION_NAME}] Element tagName: ${serverDropdown.tagName}`);
+        console.log(`[${EXTENSION_NAME}] Element className: ${serverDropdown.className}`);
+        console.log(`[${EXTENSION_NAME}] Element type: ${serverDropdown.type || 'undefined'}`);
+        
+        // Try to get the value using multiple approaches
+        let serverAlias = null;
+        
+        // Check if it's a standard select element
+        if (serverDropdown.tagName === 'SELECT') {
+            console.log(`[${EXTENSION_NAME}] Standard SELECT element found`);
+            serverAlias = serverDropdown.value;
+            console.log(`[${EXTENSION_NAME}] Dropdown Value: "${serverAlias}"`);
+            console.log(`[${EXTENSION_NAME}] Selected Index: ${serverDropdown.selectedIndex}`);
+            
+            if (serverDropdown.options && serverDropdown.options.length > 0) {
+                console.log(`[${EXTENSION_NAME}] Options count: ${serverDropdown.options.length}`);
+                if (serverDropdown.selectedIndex >= 0) {
+                    const selectedOpt = serverDropdown.options[serverDropdown.selectedIndex];
+                    console.log(`[${EXTENSION_NAME}] Selected Option: "${selectedOpt.text}" (value: "${selectedOpt.value}")`);
+                }
+            }
+        } else {
+            console.log(`[${EXTENSION_NAME}] Non-standard element found (likely Gradio component)`);
+            console.log(`[${EXTENSION_NAME}] Element innerHTML:`, serverDropdown.innerHTML.substring(0, 200) + '...');
+            
+            // Try to find nested select element within the Gradio component
+            const nestedSelect = serverDropdown.querySelector('select');
+            if (nestedSelect) {
+                console.log(`[${EXTENSION_NAME}] Found nested SELECT element`);
+                serverAlias = nestedSelect.value;
+                console.log(`[${EXTENSION_NAME}] Nested select value: "${serverAlias}"`);
+                console.log(`[${EXTENSION_NAME}] Nested select options count: ${nestedSelect.options ? nestedSelect.options.length : 'undefined'}`);
+            } else {
+                console.log(`[${EXTENSION_NAME}] No nested SELECT element found`);
+                
+                // Try to find input element (some Gradio dropdowns use input)
+                const gradioInput = serverDropdown.querySelector('input');
+                if (gradioInput) {
+                    serverAlias = gradioInput.value;
+                    console.log(`[${EXTENSION_NAME}] Found input element with value: "${serverAlias}"`);
+                }
+                
+                const gradioOptions = serverDropdown.querySelectorAll('[role="option"]');
+                if (gradioOptions.length > 0) {
+                    console.log(`[${EXTENSION_NAME}] Found ${gradioOptions.length} role="option" elements`);
+                }
+            }
+        }
+        console.log(`[${EXTENSION_NAME}] --- End Debugging Dropdown State ---`);
+
+        console.log(`[${EXTENSION_NAME}] Final serverAlias extracted: "${serverAlias}"`);
+
+        // Validate the extracted server alias
+        if (!serverAlias || serverAlias.trim() === "") {
+            console.error(`[${EXTENSION_NAME}] Error: No server selected or dropdown value is empty. Final serverAlias: "${serverAlias}"`);
             return null;
         }
         
-        // Handle Gradio dropdown - look for the input field that contains the selected value
-        const inputField = serverDropdown.querySelector('input[type="text"], input[type="hidden"]');
-        if (inputField && inputField.value && inputField.value.trim() !== '' && inputField.value !== 'Configure API key in settings') {
-            console.log(`[${EXTENSION_NAME}] Found selected server: ${inputField.value}`);
-            return inputField.value;
+        // Check for the default "Configure" text
+        if (serverAlias === "Configure API key in settings") {
+            console.error(`[${EXTENSION_NAME}] Error: "Configure API key in settings" was the effective value.`);
+            return null;
         }
         
-        // Try to get from the gradio component's value attribute
-        if (serverDropdown.value && serverDropdown.value !== 'Configure API key in settings') {
-            console.log(`[${EXTENSION_NAME}] Found selected server via value attribute: ${serverDropdown.value}`);
-            return serverDropdown.value;
-        }
-        
-        // Check if there's a gradio_app reference we can use
-        try {
-            const gradioApp = document.querySelector('#gradio-app');
-            if (gradioApp && gradioApp._gradio_app) {
-                // Try to get the value through Gradio's internal state
-                const component = gradioApp._gradio_app.get_component('stablequeue_server_dropdown');
-                if (component && component.value && component.value !== 'Configure API key in settings') {
-                    console.log(`[${EXTENSION_NAME}] Found selected server via Gradio component: ${component.value}`);
-                    return component.value;
-                }
-            }
-        } catch (e) {
-            // Ignore errors from Gradio internals
-        }
-        
-        console.error(`[${EXTENSION_NAME}] Could not determine selected server - no valid server selected`);
-        return null;
+        return serverAlias;
     }
 
     // Simple notification system
