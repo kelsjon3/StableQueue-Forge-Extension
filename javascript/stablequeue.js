@@ -732,7 +732,7 @@
                     }
                     
                     // Check for style presets, models, etc.
-                    if (typeof item === 'string' && item.includes('.safetensors') || item.includes('.ckpt')) {
+                    if (typeof item === 'string' && (item.includes('.safetensors') || item.includes('.ckpt'))) {
                         sdapiPayload.override_settings.sd_model_checkpoint = item;
                     }
                 }
