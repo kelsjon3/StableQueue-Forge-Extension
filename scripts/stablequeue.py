@@ -454,6 +454,11 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
         
         # Send to StableQueue API directly
         try:
+            print(f"[StableQueue] DEBUG: JS API sending request to {endpoint}")
+            print(f"[StableQueue] DEBUG: JS API Key: {current_api_key[:8]}...")
+            print(f"[StableQueue] DEBUG: JS API Secret: {current_api_secret[:8]}...")
+            print(f"[StableQueue] DEBUG: JS Request data: {request_data}")
+            
             response = requests.post(
                 endpoint,
                 json=request_data,
@@ -464,6 +469,10 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
                 },
                 timeout=30
             )
+            
+            print(f"[StableQueue] DEBUG: JS Response status: {response.status_code}")
+            print(f"[StableQueue] DEBUG: JS Response headers: {response.headers}")
+            print(f"[StableQueue] DEBUG: JS Response text: {response.text}")
             
             if response.status_code in [200, 201, 202]:
                 data = response.json()
