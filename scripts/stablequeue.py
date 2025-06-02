@@ -51,6 +51,10 @@ class StableQueue(scripts.Script):
     def fetch_servers(self):
         """Fetch available server aliases from StableQueue"""
         try:
+            print(f"[StableQueue] DEBUG: Fetching servers from {self.stablequeue_url}/api/v1/servers")
+            print(f"[StableQueue] DEBUG: Using API Key: {self.api_key[:8] if self.api_key else 'EMPTY'}...")
+            print(f"[StableQueue] DEBUG: Using API Secret: {self.api_secret[:8] if self.api_secret else 'EMPTY'}...")
+            
             response = requests.get(
                 f"{self.stablequeue_url}/api/v1/servers",
                 headers={
@@ -59,6 +63,8 @@ class StableQueue(scripts.Script):
                 },
                 timeout=5
             )
+            
+            print(f"[StableQueue] DEBUG: Server fetch response: {response.status_code}")
             
             if response.status_code == 200:
                 self.servers_list = [server["alias"] for server in response.json()]
@@ -202,6 +208,11 @@ class StableQueue(scripts.Script):
         
         # Send to StableQueue API
         try:
+            print(f"[StableQueue] DEBUG: Sending request to {endpoint}")
+            print(f"[StableQueue] DEBUG: API Key: {self.api_key[:8]}...")
+            print(f"[StableQueue] DEBUG: API Secret: {self.api_secret[:8]}...")
+            print(f"[StableQueue] DEBUG: Request data: {request_data}")
+            
             response = requests.post(
                 endpoint,
                 json=request_data,
@@ -212,6 +223,10 @@ class StableQueue(scripts.Script):
                 },
                 timeout=30
             )
+            
+            print(f"[StableQueue] DEBUG: Response status: {response.status_code}")
+            print(f"[StableQueue] DEBUG: Response headers: {response.headers}")
+            print(f"[StableQueue] DEBUG: Response text: {response.text}")
             
             if response.status_code in [200, 201, 202]:
                 data = response.json()
