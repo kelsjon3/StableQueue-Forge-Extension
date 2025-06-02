@@ -461,39 +461,87 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
 # Make the function available globally for JavaScript to call
 def setup_javascript_api():
     """Setup API endpoints that JavaScript can call"""
+    print(f"[StableQueue] Setting up JavaScript API endpoints...")
+    
     try:
         from modules import shared
-        from fastapi import FastAPI
+        from fastapi import FastAPI, Request
         from fastapi.responses import JSONResponse
         import json
         
-        # Get the FastAPI app instance from shared
+        print(f"[StableQueue] Checking for FastAPI app...")
+        
+        # Try multiple ways to get the FastAPI app
+        app = None
+        
+        # Method 1: Check shared.demo.app
         if hasattr(shared, 'demo') and hasattr(shared.demo, 'app'):
             app = shared.demo.app
-            
-            @app.post("/stablequeue/queue_job")
-            async def queue_job_api(request):
-                try:
-                    # Get request data
-                    data = await request.json()
-                    api_payload_json = json.dumps(data.get('api_payload', {}))
-                    server_alias = data.get('server_alias', '')
-                    job_type = data.get('job_type', 'single')
-                    
-                    # Call our queue function with the complete API payload
-                    result_json = queue_job_from_javascript(api_payload_json, server_alias, job_type)
-                    result = json.loads(result_json)
-                    
-                    return JSONResponse(content=result)
-                    
-                except Exception as e:
-                    return JSONResponse(
-                        content={"success": False, "message": f"API Error: {str(e)}"}, 
-                        status_code=500
-                    )
-                    
+            print(f"[StableQueue] Found FastAPI app via shared.demo.app")
+        
+        # Method 2: Check if there's a direct app reference
+        elif hasattr(shared, 'app'):
+            app = shared.app
+            print(f"[StableQueue] Found FastAPI app via shared.app")
+        
+        # Method 3: Try to get from gradio app
+        elif hasattr(shared, 'demo') and hasattr(shared.demo, 'fastapi_app'):
+            app = shared.demo.fastapi_app
+            print(f"[StableQueue] Found FastAPI app via shared.demo.fastapi_app")
+        
+        if app is None:
+            print(f"[StableQueue] Could not find FastAPI app. Available shared attributes:")
+            if hasattr(shared, 'demo'):
+                print(f"[StableQueue] shared.demo attributes: {dir(shared.demo)}")
+            else:
+                print(f"[StableQueue] shared attributes: {dir(shared)}")
+            return
+        
+        print(f"[StableQueue] FastAPI app found: {type(app)}")
+        
+        # Register the endpoint
+        @app.post("/stablequeue/queue_job")
+        async def queue_job_api(request: Request):
+            try:
+                print(f"[StableQueue] /stablequeue/queue_job endpoint called")
+                
+                # Get request data
+                data = await request.json()
+                api_payload_json = json.dumps(data.get('api_payload', {}))
+                server_alias = data.get('server_alias', '')
+                job_type = data.get('job_type', 'single')
+                
+                print(f"[StableQueue] Processing job: server={server_alias}, type={job_type}")
+                
+                # Call our queue function with the complete API payload
+                result_json = queue_job_from_javascript(api_payload_json, server_alias, job_type)
+                result = json.loads(result_json)
+                
+                print(f"[StableQueue] Job result: {result}")
+                
+                return JSONResponse(content=result)
+                
+            except Exception as e:
+                print(f"[StableQueue] Error in queue_job_api: {e}")
+                return JSONResponse(
+                    content={"success": False, "message": f"API Error: {str(e)}"}, 
+                    status_code=500
+                )
+        
+        print(f"[StableQueue] Successfully registered /stablequeue/queue_job endpoint")
+                
     except Exception as e:
         print(f"[StableQueue] Could not setup JavaScript API: {e}")
+        import traceback
+        print(f"[StableQueue] Full error trace: {traceback.format_exc()}")
 
-# Register the setup function
-script_callbacks.on_app_started(setup_javascript_api) 
+# Register the setup function with multiple callbacks to ensure it runs
+script_callbacks.on_app_started(setup_javascript_api)
+
+# Also try to register when UI starts
+def setup_api_on_ui_start():
+    """Alternative setup method when UI starts"""
+    print(f"[StableQueue] Attempting API setup on UI start...")
+    setup_javascript_api()
+
+script_callbacks.on_ui_started(setup_api_on_ui_start) 
