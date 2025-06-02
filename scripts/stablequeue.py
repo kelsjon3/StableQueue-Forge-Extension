@@ -33,6 +33,14 @@ class StableQueueScript(scripts.Script):
         self.monitoring_thread = None
         self.monitoring_active = False
         self.params_file_path = "params.txt"
+        self.servers_list = []
+        
+        # Initialize servers list if API key is available
+        server_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
+        api_key = shared.opts.data.get("stablequeue_api_key", "")
+        api_secret = shared.opts.data.get("stablequeue_api_secret", "")
+        if api_key and api_secret:
+            self.fetch_servers()
         
     def title(self):
         return "StableQueue"
@@ -42,6 +50,32 @@ class StableQueueScript(scripts.Script):
 
     def ui(self, is_img2img):
         return []
+    
+    def fetch_servers(self):
+        """Fetch available server aliases from StableQueue"""
+        try:
+            server_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
+            api_key = shared.opts.data.get("stablequeue_api_key", "")
+            api_secret = shared.opts.data.get("stablequeue_api_secret", "")
+            
+            response = requests.get(
+                f"{server_url}/api/v1/servers",
+                headers={
+                    "X-API-Key": api_key,
+                    "X-API-Secret": api_secret
+                },
+                timeout=5
+            )
+            
+            if response.status_code == 200:
+                self.servers_list = [server["alias"] for server in response.json()]
+                return True
+            else:
+                print(f"[StableQueue] Failed to fetch servers: {response.status_code} - {response.text}")
+                return False
+        except Exception as e:
+            print(f"[StableQueue] Error fetching servers: {str(e)}")
+            return False
 
     def process(self, p: StableDiffusionProcessing, *args):
         """
@@ -51,17 +85,21 @@ class StableQueueScript(scripts.Script):
         global pending_queue_request
         
         try:
-            # Get StableQueue settings
-            server_url = shared.opts.data.get("stablequeue_server_url", "")
-            api_key = shared.opts.data.get("stablequeue_api_key", "")
-            api_secret = shared.opts.data.get("stablequeue_api_secret", "")
-            auto_queue = shared.opts.data.get("stablequeue_auto_queue", False)
-            
             # Check if there's a pending manual queue request
             manual_queue = pending_queue_request.get("enabled", False)
             
-            if not (auto_queue or manual_queue) or not all([server_url, api_key, api_secret]):
-                # Neither auto-queueing nor manual queue enabled, or credentials not configured
+            if not manual_queue:
+                # No manual queue request - continue with normal processing
+                return
+            
+            # Get StableQueue settings
+            server_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
+            api_key = shared.opts.data.get("stablequeue_api_key", "")
+            api_secret = shared.opts.data.get("stablequeue_api_secret", "")
+            
+            if not all([server_url, api_key, api_secret]):
+                print(f"[StableQueue] ✗ Credentials not configured, allowing local generation")
+                pending_queue_request["enabled"] = False
                 return
                 
             print(f"[StableQueue] Intercepting generation with {len(p.script_args)} script args")
@@ -69,40 +107,40 @@ class StableQueueScript(scripts.Script):
             # Extract complete parameters
             params = self.extract_complete_parameters(p)
             
-            # Use server alias from pending request if manual queue, otherwise default
-            target_server = pending_queue_request.get("server_alias", "") if manual_queue else ""
-            job_type = pending_queue_request.get("job_type", "single") if manual_queue else "single"
+            # Use server alias from pending request
+            target_server = pending_queue_request.get("server_alias", "")
+            job_type = pending_queue_request.get("job_type", "single")
             
             # Submit to StableQueue
             success = self.submit_to_stablequeue(params, server_url, api_key, api_secret)
             
             # Clear pending request after processing
-            if manual_queue:
-                pending_queue_request["enabled"] = False
-                pending_queue_request["server_alias"] = ""
-                pending_queue_request["job_type"] = "single"
+            pending_queue_request["enabled"] = False
+            pending_queue_request["server_alias"] = ""
+            pending_queue_request["job_type"] = "single"
             
             if success:
-                queue_type = "Manual" if manual_queue else "Auto"
-                print(f"[StableQueue] ✓ {queue_type} job queued successfully, preventing local generation")
+                print(f"[StableQueue] ✓ Manual job queued successfully, preventing local generation")
                 
                 # Prevent local generation by returning empty result
                 return Processed(
                     p,
                     images_list=[],
                     seed=p.seed,
-                    info=f"Job queued in StableQueue ({queue_type.lower()}) - local generation skipped",
+                    info="Job queued in StableQueue - local generation skipped",
                     subseed=p.subseed,
                     all_prompts=[p.prompt],
                     all_seeds=[p.seed],
                     all_subseeds=[p.subseed],
-                    infotexts=[f"Job queued in StableQueue ({queue_type.lower()})"]
+                    infotexts=["Job queued in StableQueue"]
                 )
             else:
                 print(f"[StableQueue] ✗ Failed to queue job, allowing local generation")
                 
         except Exception as e:
             print(f"[StableQueue] Error in process hook: {e}")
+            # Clear pending request on error
+            pending_queue_request["enabled"] = False
             # Continue with local generation on error
             
         return None  # Continue with normal processing
@@ -337,48 +375,7 @@ pending_queue_request = {
 # Create global instance
 stablequeue_instance = StableQueueScript()
 
-def on_ui_settings():
-    """Add StableQueue settings to the Settings tab"""
-    section = ("stablequeue", "StableQueue")
-    
-    shared.opts.add_option(
-        "stablequeue_server_url",
-        shared.OptionInfo(
-            "http://192.168.73.124:8083",
-            "StableQueue Server URL",
-            section=section
-        )
-    )
-    
-    shared.opts.add_option(
-        "stablequeue_api_key", 
-        shared.OptionInfo(
-            "",
-            "StableQueue API Key",
-            section=section
-        )
-    )
-    
-    shared.opts.add_option(
-        "stablequeue_api_secret",
-        shared.OptionInfo(
-            "",
-            "StableQueue API Secret", 
-            section=section
-        )
-    )
-    
-    shared.opts.add_option(
-        "stablequeue_auto_queue",
-        shared.OptionInfo(
-            False,
-            "Auto-queue generations to StableQueue (prevents local generation)",
-            section=section
-        )
-    )
 
-# Register settings
-script_callbacks.on_ui_settings(on_ui_settings)
 
 print("[StableQueue] Extension loaded - Python AlwaysOnScript approach")
 
