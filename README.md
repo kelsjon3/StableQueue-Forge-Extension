@@ -70,15 +70,38 @@ A Forge extension to queue image generation jobs to a StableQueue server. This e
 
 ## Requirements
 
-- Forge UI (A1111 WebUI fork)
+- Forge UI (A1111 WebUI fork) with **`--api` flag enabled**
 - Running StableQueue server (v1.0.0 or higher)
 - API key with permissions to submit jobs
 
+### Important: Enable API Mode
+
+**CRITICAL**: You must launch Forge with the `--api` flag to enable the extension to capture complete generation parameters.
+
+Add `--api` to your Forge launch arguments in `webui-user.sh` or `webui-user.bat`:
+
+```bash
+# In webui-user.sh (Linux/Mac)
+export COMMANDLINE_ARGS="--api"
+```
+
+```batch
+REM In webui-user.bat (Windows)
+set COMMANDLINE_ARGS=--api
+```
+
+Without the `--api` flag, the extension will only capture incomplete parameters and may fail to queue jobs properly.
+
+You can verify the API is enabled by visiting `http://127.0.0.1:7860/docs#/` and confirming you see the `/sdapi/v1/txt2img` endpoint.
+
 ## Troubleshooting
 
+- **Incomplete parameters captured** or **"simple" prompts**: Enable the `--api` flag in your Forge launch configuration
+- **No `/sdapi/v1/txt2img` endpoint**: The `--api` flag is not enabled - add it to `COMMANDLINE_ARGS`
 - **No servers found**: Make sure your StableQueue server is running and your API credentials are correct
 - **Connection errors**: Check the StableQueue server URL and ensure the server is accessible
 - **API authentication failed**: Verify your API key and secret in the settings
+- **Extension parameters missing**: Ensure `--api` is enabled so the full FastAPI interface is available
 
 ## License
 

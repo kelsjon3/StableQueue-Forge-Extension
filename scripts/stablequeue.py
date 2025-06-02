@@ -14,6 +14,7 @@ import uuid
 from modules import shared
 from modules.ui_components import FormRow, FormGroup, ToolButton
 from modules import script_callbacks
+from modules.processing import StableDiffusionProcessing, Processed
 
 print("[StableQueue] All imports successful")
 
@@ -26,334 +27,249 @@ print(f"[StableQueue] Extension initialized - Version {VERSION}")
 # Global flag to track if API is set up
 api_setup_completed = False
 
-class StableQueue(scripts.Script):
+class StableQueueScript(scripts.Script):
     def __init__(self):
-        super().__init__()
-        # Load configuration from shared options
-        self.stablequeue_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
-        self.api_key = shared.opts.data.get("stablequeue_api_key", "")
-        self.api_secret = shared.opts.data.get("stablequeue_api_secret", "")
-        self.connection_verified = False
-        self.servers_list = []
-        self.bulk_job_quantity = shared.opts.data.get("stablequeue_bulk_quantity", 10)
-        self.job_delay = shared.opts.data.get("stablequeue_job_delay", 5)
+        self.last_params_content = ""
+        self.monitoring_thread = None
+        self.monitoring_active = False
+        self.params_file_path = "params.txt"
         
-        # Initialize servers list if API key is available
-        if self.api_key and self.api_secret:
-            self.fetch_servers()
-    
     def title(self):
         return "StableQueue"
-    
+
     def show(self, is_img2img):
         return scripts.AlwaysVisible
-    
-    def fetch_servers(self):
-        """Fetch available server aliases from StableQueue"""
+
+    def ui(self, is_img2img):
+        return []
+
+    def process(self, p: StableDiffusionProcessing, *args):
+        """
+        This hook is called with the complete StableDiffusionProcessing object
+        containing all parameters from UI and extensions.
+        """
         try:
-            print(f"[StableQueue] DEBUG: Fetching servers from {self.stablequeue_url}/api/v1/servers")
-            print(f"[StableQueue] DEBUG: Using API Key: {self.api_key[:8] if self.api_key else 'EMPTY'}...")
-            print(f"[StableQueue] DEBUG: Using API Secret: {self.api_secret[:8] if self.api_secret else 'EMPTY'}...")
+            # Get StableQueue settings
+            server_url = shared.opts.data.get("stablequeue_server_url", "")
+            api_key = shared.opts.data.get("stablequeue_api_key", "")
+            api_secret = shared.opts.data.get("stablequeue_api_secret", "")
+            auto_queue = shared.opts.data.get("stablequeue_auto_queue", False)
             
-            response = requests.get(
-                f"{self.stablequeue_url}/api/v1/servers",
-                headers={
-                    "X-API-Key": self.api_key,
-                    "X-API-Secret": self.api_secret
-                },
-                timeout=5
-            )
+            if not auto_queue or not all([server_url, api_key, api_secret]):
+                # Auto-queueing disabled or credentials not configured
+                return
+                
+            print(f"[StableQueue] Intercepting generation with {len(p.script_args)} script args")
             
-            print(f"[StableQueue] DEBUG: Server fetch response: {response.status_code}")
+            # Extract complete parameters
+            params = self.extract_complete_parameters(p)
             
-            if response.status_code == 200:
-                self.servers_list = [server["alias"] for server in response.json()]
-                return True
+            # Submit to StableQueue
+            success = self.submit_to_stablequeue(params, server_url, api_key, api_secret)
+            
+            if success:
+                print(f"[StableQueue] ✓ Job queued successfully, preventing local generation")
+                
+                # Prevent local generation by returning empty result
+                return Processed(
+                    p,
+                    images_list=[],
+                    seed=p.seed,
+                    info="Job queued in StableQueue - local generation skipped",
+                    subseed=p.subseed,
+                    all_prompts=[p.prompt],
+                    all_seeds=[p.seed],
+                    all_subseeds=[p.subseed],
+                    infotexts=["Job queued in StableQueue"]
+                )
             else:
-                print(f"[StableQueue] Failed to fetch servers: {response.status_code} - {response.text}")
-                return False
+                print(f"[StableQueue] ✗ Failed to queue job, allowing local generation")
+                
         except Exception as e:
-            print(f"[StableQueue] Error fetching servers: {str(e)}")
-            return False
-    
-    def test_connection(self, url, key, secret):
-        """Test connection to StableQueue server"""
-        try:
-            # First test basic server connectivity
-            response = requests.get(
-                f"{url}/status",
-                timeout=5
-            )
+            print(f"[StableQueue] Error in process hook: {e}")
+            # Continue with local generation on error
             
-            if response.status_code == 200:
-                # If status is ok, test API authentication if credentials provided
-                if key and secret:
-                    servers_response = requests.get(
-                        f"{url}/api/v1/servers",
-                        headers={
-                            "X-API-Key": key,
-                            "X-API-Secret": secret
-                        },
-                        timeout=5
-                    )
-                    
-                    if servers_response.status_code == 200:
-                        self.servers_list = [server["alias"] for server in servers_response.json()]
-                        self.connection_verified = True
-                        return True, f"Connected to StableQueue server. Found {len(self.servers_list)} server(s)."
-                    elif servers_response.status_code == 401:
-                        return False, "Server is reachable, but API authentication failed. Please check your API key and secret."
-                    else:
-                        return False, f"Server is reachable, but API request failed: {servers_response.status_code}"
-                else:
-                    # No credentials provided, but server is reachable
-                    return True, "Server is reachable. Please configure API credentials to access server list."
-            else:
-                return False, f"Failed to connect to StableQueue: {response.status_code} - {response.text}"
-        except requests.exceptions.ConnectionError:
-            return False, f"Cannot connect to StableQueue server at {url}. Please check the URL and ensure the server is running."
-        except requests.exceptions.Timeout:
-            return False, f"Connection to StableQueue server timed out. Please check the server status."
-        except Exception as e:
-            return False, f"Error connecting to StableQueue: {str(e)}"
-    
-    def create_api_key(self, url, name):
-        """Create a new API key on the StableQueue server"""
-        if not name:
-            return False, "API key name cannot be empty"
+        return None  # Continue with normal processing
+
+    def extract_complete_parameters(self, p: StableDiffusionProcessing):
+        """Extract all parameters from the StableDiffusionProcessing object"""
         
-        try:
-            response = requests.post(
-                f"{url}/api/v1/api-keys",
-                json={"name": name},
-                timeout=10
-            )
-            
-            if response.status_code == 201:
-                data = response.json()
-                return True, {
-                    "key": data["key"],
-                    "secret": data["secret"],
-                    "message": f"API key '{name}' created successfully"
-                }
-            else:
-                return False, f"Failed to create API key: {response.status_code} - {response.text}"
-        except Exception as e:
-            return False, f"Error creating API key: {str(e)}"
-    
-    def extract_parameters(self, p):
-        """Extract generation parameters from the Forge UI"""
-        # Basic parameters
+        # Core parameters
         params = {
-            "positive_prompt": p.prompt,
+            "prompt": p.prompt,
             "negative_prompt": p.negative_prompt,
+            "steps": p.steps,
+            "sampler_name": p.sampler_name,
+            "cfg_scale": p.cfg_scale,
             "width": p.width,
             "height": p.height,
-            "steps": p.steps,
-            "cfg_scale": p.cfg_scale,
-            "sampler_name": p.sampler_name,
-            "restore_faces": getattr(p, "restore_faces", False),
             "seed": p.seed,
+            "subseed": p.subseed,
+            "subseed_strength": p.subseed_strength,
             "batch_size": p.batch_size,
-            "batch_count": p.n_iter
+            "n_iter": p.n_iter,
+            "restore_faces": p.restore_faces,
+            "tiling": p.tiling,
+            "send_images": True,
+            "save_images": True,
+            "override_settings": p.override_settings if hasattr(p, 'override_settings') else {},
         }
         
-        # Add checkpoint model info
-        if hasattr(p, "sd_model") and p.sd_model:
-            params["checkpoint_name"] = p.sd_model.name
+        # High-res fix parameters
+        if hasattr(p, 'enable_hr'):
+            params.update({
+                "enable_hr": p.enable_hr,
+                "hr_scale": getattr(p, 'hr_scale', 2.0),
+                "hr_upscaler": getattr(p, 'hr_upscaler', 'Latent'),
+                "hr_second_pass_steps": getattr(p, 'hr_second_pass_steps', 0),
+                "denoising_strength": getattr(p, 'denoising_strength', 0.7),
+            })
         
-        # Add additional parameters if available
-        if hasattr(p, "enable_hr"):
-            params["enable_hr"] = p.enable_hr
-            if p.enable_hr:
-                params["hr_scale"] = p.hr_scale
-                params["hr_upscaler"] = p.hr_upscaler
-                params["hr_second_pass_steps"] = p.hr_second_pass_steps
+        # Model information
+        if hasattr(p, 'sd_model') and p.sd_model:
+            params["checkpoint_name"] = getattr(p.sd_model, 'sd_checkpoint_info', {}).get('name', '')
+            params["model_hash"] = getattr(p.sd_model, 'sd_model_hash', '')
         
-        # Add subseed if available
-        if hasattr(p, "subseed") and p.subseed > -1:
-            params["subseed"] = p.subseed
-            params["subseed_strength"] = p.subseed_strength
+        # Extension parameters from script_args
+        if hasattr(p, 'scripts') and hasattr(p.scripts, 'alwayson_scripts') and p.script_args:
+            params["alwayson_scripts"] = {}
+            
+            try:
+                for script in p.scripts.alwayson_scripts:
+                    if hasattr(script, 'args_from') and hasattr(script, 'args_to'):
+                        script_name = script.title().lower().replace(' ', '_')
+                        script_args = p.script_args[script.args_from:script.args_to]
+                        
+                        # Special handling for known extensions
+                        if 'controlnet' in script_name.lower():
+                            params["alwayson_scripts"][script_name] = self.parse_controlnet_args(script_args)
+                        else:
+                            # Generic handling for unknown extensions
+                            params["alwayson_scripts"][script_name] = script_args
+                            
+                print(f"[StableQueue] Captured {len(params['alwayson_scripts'])} extension(s)")
+                        
+            except Exception as e:
+                print(f"[StableQueue] Warning: Could not parse script_args: {e}")
+                params["alwayson_scripts"] = {}
         
-        # Return the collected parameters
         return params
-    
-    def queue_in_stablequeue(self, p, server_alias, priority, job_type="single"):
-        """Send job to StableQueue"""
-        # Extract generation parameters
-        generation_params = self.extract_parameters(p)
-        
-        # Prepare request body
-        request_data = {
-            "app_type": "forge",
-            "target_server_alias": server_alias,
-            "generation_params": generation_params,
-            "source_info": f"stablequeue_forge_extension_v{VERSION}"
-        }
-        
-        # Add priority if specified
-        if priority and priority > 0:
-            request_data["priority"] = int(priority)
-        
-        # Check if it's a bulk job
-        if job_type == "bulk":
-            # Add bulk job specific parameters
-            request_data["bulk_quantity"] = self.bulk_job_quantity
-            request_data["job_delay"] = self.job_delay
-            request_data["source_info"] = f"stablequeue_forge_extension_bulk_v{VERSION}"
-            
-            endpoint = f"{self.stablequeue_url}/api/v2/generate/bulk"
-        else:
-            endpoint = f"{self.stablequeue_url}/api/v2/generate"
-        
-        # Send to StableQueue API
-        try:
-            print(f"[StableQueue] DEBUG: Sending request to {endpoint}")
-            print(f"[StableQueue] DEBUG: API Key: {self.api_key[:8]}...")
-            print(f"[StableQueue] DEBUG: API Secret: {self.api_secret[:8]}...")
-            print(f"[StableQueue] DEBUG: Request data: {request_data}")
-            
-            response = requests.post(
-                endpoint,
-                json=request_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-API-Key": self.api_key,
-                    "X-API-Secret": self.api_secret
-                },
-                timeout=30
-            )
-            
-            print(f"[StableQueue] DEBUG: Response status: {response.status_code}")
-            print(f"[StableQueue] DEBUG: Response headers: {response.headers}")
-            print(f"[StableQueue] DEBUG: Response text: {response.text}")
-            
-            if response.status_code in [200, 201, 202]:
-                data = response.json()
-                if job_type == "bulk":
-                    return True, f"Bulk job submitted successfully. {data.get('total_jobs', 0)} jobs queued."
-                else:
-                    job_id = data.get("stablequeue_job_id")
-                    return True, f"Job queued successfully. ID: {job_id}"
-            else:
-                return False, f"Error: {response.status_code} - {response.json().get('error', 'Unknown error')}"
-        except Exception as e:
-            return False, f"Connection error: {str(e)}"
-    
-    def ui(self, is_img2img):
-        """This UI method is disabled - we use create_stablequeue_tab() instead"""
-        # Return empty components to avoid conflicts with the standalone tab
-        return []
-    
-    def after_component(self, component, **kwargs):
-        """Add a 'Queue in StableQueue' button after the Generate button"""
-        # This will be used to add buttons directly to the UI outside our tab
-        pass
 
-    def queue_job_from_javascript(self, api_payload, server_alias, job_type):
-        """Queue a job from JavaScript, handling both /sdapi/v1/ and Gradio payloads"""
+    def parse_controlnet_args(self, args):
+        """Parse ControlNet arguments into structured format"""
         try:
-            print(f"[StableQueue] /stablequeue/queue_job endpoint called")
-            print(f"[StableQueue] Processing job: server={server_alias}, type={job_type}")
+            # ControlNet typically has 15-20 args per unit
+            # This is a basic parser - may need adjustment based on ControlNet version
+            units = []
+            args_per_unit = 15  # Adjust based on actual ControlNet structure
             
-            # Log payload structure for debugging
-            if isinstance(api_payload, dict):
-                print(f"[StableQueue] Payload type: {type(api_payload).__name__}")
-                print(f"[StableQueue] Payload keys: {list(api_payload.keys())}")
-                
-                # Check for complete /sdapi/v1/ payload
-                if 'prompt' in api_payload or 'positive_prompt' in api_payload:
-                    print(f"[StableQueue] ✅ Complete /sdapi/v1/ payload detected")
-                    prompt = api_payload.get('prompt') or api_payload.get('positive_prompt', '')
-                    print(f"[StableQueue] Prompt: \"{prompt[:100]}{'...' if len(prompt) > 100 else ''}\"")
-                    print(f"[StableQueue] Parameters count: {len(api_payload)} keys")
-                    
-                    # Validate essential parameters
-                    if not prompt.strip():
-                        return {
-                            'success': False,
-                            'message': 'Empty prompt detected. Please enter a prompt and try again.'
-                        }
-                    
-                    generation_params = api_payload  # Use the complete payload directly
-                    
-                else:
-                    print(f"[StableQueue] ❌ Incomplete payload - missing prompt/positive_prompt")
-                    return {
-                        'success': False,
-                        'message': 'Incomplete generation parameters. Missing prompt or essential data.'
+            for i in range(0, len(args), args_per_unit):
+                unit_args = args[i:i + args_per_unit]
+                if len(unit_args) >= args_per_unit and unit_args[0]:  # Check if enabled
+                    unit = {
+                        "enabled": unit_args[0] if len(unit_args) > 0 else False,
+                        "module": unit_args[1] if len(unit_args) > 1 else "",
+                        "model": unit_args[2] if len(unit_args) > 2 else "",
+                        "weight": unit_args[3] if len(unit_args) > 3 else 1.0,
+                        "image": unit_args[4] if len(unit_args) > 4 else None,
+                        "resize_mode": unit_args[5] if len(unit_args) > 5 else 0,
+                        "low_vram": unit_args[6] if len(unit_args) > 6 else False,
+                        "processor_res": unit_args[7] if len(unit_args) > 7 else 512,
+                        "threshold_a": unit_args[8] if len(unit_args) > 8 else 0.5,
+                        "threshold_b": unit_args[9] if len(unit_args) > 9 else 0.5,
+                        "guidance_start": unit_args[10] if len(unit_args) > 10 else 0.0,
+                        "guidance_end": unit_args[11] if len(unit_args) > 11 else 1.0,
+                        "control_mode": unit_args[12] if len(unit_args) > 12 else 0,
+                        "pixel_perfect": unit_args[13] if len(unit_args) > 13 else False,
                     }
-            else:
-                print(f"[StableQueue] ❌ Invalid payload format: {type(api_payload)}")
-                return {
-                    'success': False,
-                    'message': 'Invalid payload format received.'
-                }
+                    units.append(unit)
             
-            print(f"[StableQueue] Using credentials - URL: {self.stablequeue_url}, API Key: ***, API Secret: ***")
+            return {"units": units}
             
-            # Prepare data for StableQueue backend
-            backend_data = {
-                'app_type': 'forge',
-                'target_server_alias': server_alias,
-                'generation_params': generation_params,
-                'priority': 1,
-                'source_info': 'forge_extension'
-            }
-            
-            print(f"[StableQueue] 📤 Sending complete payload to StableQueue backend...")
-            
-            # Send to StableQueue backend
-            headers = {
-                'X-API-Key': self.api_key,
-                'X-API-Secret': self.api_secret,
-                'Content-Type': 'application/json'
-            }
-            
-            response = requests.post(
-                f"{self.stablequeue_url}/api/v2/generate",
-                json=backend_data,
-                headers=headers,
-                timeout=30
-            )
-            
-            if response.status_code == 202:
-                result = response.json()
-                job_id = result.get('mobilesd_job_id', 'unknown')
-                queue_pos = result.get('queue_position', 'unknown')
-                
-                message = f"✅ Job queued successfully! Job ID: {job_id}, Queue position: {queue_pos}"
-                print(f"[StableQueue] {message}")
-                
-                return {
-                    'success': True,
-                    'message': message,
-                    'job_id': job_id,
-                    'queue_position': queue_pos
-                }
-            else:
-                error_text = response.text
-                print(f"[StableQueue] ❌ Backend error {response.status_code}: {error_text}")
-                
-                return {
-                    'success': False,
-                    'message': f"Backend error ({response.status_code}): {error_text[:200]}"
-                }
-                
-        except requests.exceptions.RequestException as e:
-            error_msg = f"Connection error: {str(e)}"
-            print(f"[StableQueue] ❌ {error_msg}")
-            return {
-                'success': False,
-                'message': error_msg
-            }
         except Exception as e:
-            error_msg = f"Unexpected error: {str(e)}"
-            print(f"[StableQueue] ❌ {error_msg}")
-            return {
-                'success': False,
-                'message': error_msg
+            print(f"[StableQueue] Warning: Could not parse ControlNet args: {e}")
+            return {"raw_args": args}
+
+    def submit_to_stablequeue(self, params, server_url, api_key, api_secret):
+        """Submit job to StableQueue server"""
+        try:
+            payload = {
+                "payload": params,
+                "api_key": api_key,
+                "api_secret": api_secret
             }
+            
+            headers = {
+                "Content-Type": "application/json",
+                "X-API-Key": api_key,
+                "X-API-Secret": api_secret
+            }
+            
+            url = f"{server_url.rstrip('/')}/api/v2/generation/enqueue"
+            
+            print(f"[StableQueue] Submitting to {url}")
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                result = response.json()
+                print(f"[StableQueue] ✓ Job queued with ID: {result.get('job_id', 'unknown')}")
+                return True
+            else:
+                print(f"[StableQueue] ✗ Failed to queue: {response.status_code} - {response.text}")
+                return False
+                
+        except requests.exceptions.Timeout:
+            print(f"[StableQueue] ✗ Timeout connecting to StableQueue server")
+            return False
+        except Exception as e:
+            print(f"[StableQueue] ✗ Error submitting job: {e}")
+            return False
+
+def on_ui_settings():
+    """Add StableQueue settings to the Settings tab"""
+    section = ("stablequeue", "StableQueue")
+    
+    shared.opts.add_option(
+        "stablequeue_server_url",
+        shared.OptionInfo(
+            "http://192.168.73.124:8083",
+            "StableQueue Server URL",
+            section=section
+        )
+    )
+    
+    shared.opts.add_option(
+        "stablequeue_api_key", 
+        shared.OptionInfo(
+            "",
+            "StableQueue API Key",
+            section=section
+        )
+    )
+    
+    shared.opts.add_option(
+        "stablequeue_api_secret",
+        shared.OptionInfo(
+            "",
+            "StableQueue API Secret", 
+            section=section
+        )
+    )
+    
+    shared.opts.add_option(
+        "stablequeue_auto_queue",
+        shared.OptionInfo(
+            False,
+            "Auto-queue generations to StableQueue (prevents local generation)",
+            section=section
+        )
+    )
+
+# Register settings
+script_callbacks.on_ui_settings(on_ui_settings)
+
+print("[StableQueue] Extension loaded - Python AlwaysOnScript approach")
 
 # Register context menu items if enabled
 def context_menu_entries():
@@ -373,7 +289,7 @@ def create_stablequeue_tab():
     try:
         print(f"[StableQueue] create_stablequeue_tab() called - Creating tab interface...")
         
-        stablequeue_instance = StableQueue()
+        stablequeue_instance = StableQueueScript()
         print(f"[StableQueue] StableQueue instance created successfully")
         
         with gr.Blocks(analytics_enabled=False) as stablequeue_interface:
