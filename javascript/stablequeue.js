@@ -361,109 +361,100 @@
                          url.includes('/sdapi/v1/img2img') ||
                          url.includes('/api/') || 
                          url.includes('/run/') || 
-                         url.includes('/predict')) && 
-                        options?.method === 'POST' && !intercepted) {
+                         url.includes('/predict') ||
+                         url.includes('/queue/join') ||
+                         url.includes('/internal/progress')) && 
+                        options?.method === 'POST') {
                         
-                        intercepted = true;
                         console.log(`[${EXTENSION_NAME}] 🎯 API CALL INTERCEPTED: ${url}`);
-                        console.log(`[${EXTENSION_NAME}] 🎯 BLOCKING FORGE EXECUTION - Processing with StableQueue...`);
                         
-                        try {
-                            let apiPayload;
+                        // If this is the first interception, send to StableQueue
+                        if (!intercepted) {
+                            intercepted = true;
+                            console.log(`[${EXTENSION_NAME}] 🎯 FIRST CALL - BLOCKING FORGE EXECUTION - Processing with StableQueue...`);
                             
-                            if (url.includes('/sdapi/v1/')) {
-                                // Direct /sdapi/v1/ call - use as-is
-                                apiPayload = JSON.parse(options.body);
-                                console.log(`[${EXTENSION_NAME}] Using /sdapi/v1/ payload directly`);
-                            } else {
-                                // Gradio call - convert to /sdapi/v1/ format
-                                const gradioPayload = JSON.parse(options.body);
-                                apiPayload = await convertGradioToSDAPI(gradioPayload, tabId);
-                                console.log(`[${EXTENSION_NAME}] Converted Gradio payload to /sdapi/v1/ format`);
-                            }
-                            
-                            const requestData = {
-                                api_payload: apiPayload,
-                                server_alias: serverAlias,
-                                job_type: jobType
-                            };
-                            
-                            console.log(`[${EXTENSION_NAME}] 📤 Sending to StableQueue...`);
-                            
-                            // SYNCHRONOUS BLOCKING: Wait for StableQueue response before returning
-                            const response = await originalFetch('/stablequeue/queue_job', {
-                                method: 'POST',
-                                headers: { 
-                                    'Content-Type': 'application/json'
-                                },
-                                body: JSON.stringify(requestData)
-                            });
-                            
-                            console.log(`[${EXTENSION_NAME}] 📥 StableQueue response: ${response.status}`);
-                            
-                            if (!response.ok) {
-                                const text = await response.text();
-                                const error = new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
-                                console.log(`[${EXTENSION_NAME}] ❌ StableQueue error - restoring interceptors and rejecting`);
-                                // Restore interceptors on error
-                                window.fetch = originalFetch;
-                                window.XMLHttpRequest = originalXHR;
-                                interceptionReject(error);
-                                throw error;
-                            }
-                            
-                            const data = await response.json();
-                            
-                            if (data.success) {
-                                console.log(`[${EXTENSION_NAME}] ✅ StableQueue success - Job queued! Blocking Forge execution.`);
-                                showNotification(data.message, 'success');
-                                // Restore interceptors after success
-                                window.fetch = originalFetch;
-                                window.XMLHttpRequest = originalXHR;
-                                interceptionResolve(data);
+                            try {
+                                let apiPayload;
                                 
-                                // Return success response to completely block Forge
-                                console.log(`[${EXTENSION_NAME}] 🚫 Returning intercepted response to block Forge`);
-                                return new Response(JSON.stringify({ 
-                                    success: true, 
-                                    message: 'Job queued in StableQueue successfully',
-                                    intercepted: true
-                                }), {
-                                    status: 200,
-                                    headers: { 'Content-Type': 'application/json' }
+                                if (url.includes('/sdapi/v1/')) {
+                                    // Direct /sdapi/v1/ call - use as-is
+                                    apiPayload = JSON.parse(options.body);
+                                    console.log(`[${EXTENSION_NAME}] Using /sdapi/v1/ payload directly`);
+                                } else {
+                                    // Gradio call - convert to /sdapi/v1/ format
+                                    const gradioPayload = JSON.parse(options.body);
+                                    apiPayload = await convertGradioToSDAPI(gradioPayload, tabId);
+                                    console.log(`[${EXTENSION_NAME}] Converted Gradio payload to /sdapi/v1/ format`);
+                                }
+                                
+                                const requestData = {
+                                    api_payload: apiPayload,
+                                    server_alias: serverAlias,
+                                    job_type: jobType
+                                };
+                                
+                                console.log(`[${EXTENSION_NAME}] 📤 Sending to StableQueue...`);
+                                
+                                // SYNCHRONOUS BLOCKING: Wait for StableQueue response before returning
+                                const response = await originalFetch('/stablequeue/queue_job', {
+                                    method: 'POST',
+                                    headers: { 
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify(requestData)
                                 });
-                            } else {
-                                const errorMsg = `Error: ${data.message || 'Unknown error'}`;
-                                const error = new Error(errorMsg);
-                                console.log(`[${EXTENSION_NAME}] ❌ StableQueue returned error - restoring interceptors`);
+                                
+                                console.log(`[${EXTENSION_NAME}] 📥 StableQueue response: ${response.status}`);
+                                
+                                if (!response.ok) {
+                                    const text = await response.text();
+                                    const error = new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
+                                    console.log(`[${EXTENSION_NAME}] ❌ StableQueue error - will restore interceptors on timeout`);
+                                    interceptionReject(error);
+                                    throw error;
+                                }
+                                
+                                const data = await response.json();
+                                
+                                if (data.success) {
+                                    console.log(`[${EXTENSION_NAME}] ✅ StableQueue success - Job queued! Keeping interception active to block ALL Forge calls.`);
+                                    showNotification(data.message, 'success');
+                                    interceptionResolve(data);
+                                    
+                                    // Don't restore interceptors yet - keep blocking all related calls
+                                    console.log(`[${EXTENSION_NAME}] 🚫 Blocking first call - will block all subsequent calls too`);
+                                } else {
+                                    const errorMsg = `Error: ${data.message || 'Unknown error'}`;
+                                    const error = new Error(errorMsg);
+                                    console.log(`[${EXTENSION_NAME}] ❌ StableQueue returned error - will restore interceptors on timeout`);
+                                    showNotification(errorMsg, 'error');
+                                    interceptionReject(error);
+                                    throw error;
+                                }
+                                
+                            } catch (error) {
+                                console.error(`[${EXTENSION_NAME}] Error processing intercepted request:`, error);
+                                const errorMsg = `Error: ${error.message}`;
                                 showNotification(errorMsg, 'error');
-                                // Restore interceptors on error
-                                window.fetch = originalFetch;
-                                window.XMLHttpRequest = originalXHR;
-                                interceptionReject(error);
-                                throw error;
+                                
+                                // Return error response to block Forge
+                                console.log(`[${EXTENSION_NAME}] 🚫 Returning error response to block first call`);
                             }
-                            
-                        } catch (error) {
-                            console.error(`[${EXTENSION_NAME}] Error processing intercepted request:`, error);
-                            const errorMsg = `Error: ${error.message}`;
-                            showNotification(errorMsg, 'error');
-                            
-                            // Ensure interceptors are restored on any error
-                            window.fetch = originalFetch;
-                            window.XMLHttpRequest = originalXHR;
-                            
-                            // Return error response to block Forge
-                            console.log(`[${EXTENSION_NAME}] 🚫 Returning error response to block Forge`);
-                            return new Response(JSON.stringify({ 
-                                error: 'StableQueue interception failed', 
-                                detail: error.message,
-                                intercepted: true
-                            }), {
-                                status: 500,
-                                headers: { 'Content-Type': 'application/json' }
-                            });
+                        } else {
+                            // This is a subsequent call - just block it
+                            console.log(`[${EXTENSION_NAME}] 🚫 BLOCKING SUBSEQUENT CALL: ${url}`);
                         }
+                        
+                        // Return blocked response for ALL intercepted calls
+                        return new Response(JSON.stringify({ 
+                            success: false, 
+                            message: 'Request blocked by StableQueue - job queued remotely',
+                            intercepted: true,
+                            blocked: true
+                        }), {
+                            status: 200,  // Return 200 to avoid UI errors
+                            headers: { 'Content-Type': 'application/json' }
+                        });
                     }
                     
                     // Not a target URL, pass through normally
@@ -488,122 +479,96 @@
                              requestUrl.includes('/sdapi/v1/img2img') ||
                              requestUrl.includes('/api/') || 
                              requestUrl.includes('/run/') || 
-                             requestUrl.includes('/predict')) && 
-                            data && !intercepted) {
+                             requestUrl.includes('/predict') ||
+                             requestUrl.includes('/queue/join') ||
+                             requestUrl.includes('/internal/progress')) && 
+                            data) {
                             
-                            intercepted = true;
                             console.log(`[${EXTENSION_NAME}] 🎯 XHR API CALL INTERCEPTED: ${requestUrl}`);
-                            console.log(`[${EXTENSION_NAME}] 🎯 BLOCKING FORGE XHR EXECUTION - Processing with StableQueue...`);
                             
-                            // Handle XHR interception SYNCHRONOUSLY
-                            (async () => {
-                                try {
-                                    let apiPayload;
-                                    
-                                    if (requestUrl.includes('/sdapi/v1/')) {
-                                        apiPayload = JSON.parse(data);
-                                    } else {
-                                        const gradioPayload = JSON.parse(data);
-                                        apiPayload = await convertGradioToSDAPI(gradioPayload, tabId);
-                                    }
-                                    
-                                    const requestData = {
-                                        api_payload: apiPayload,
-                                        server_alias: serverAlias,
-                                        job_type: jobType
-                                    };
-                                    
-                                    console.log(`[${EXTENSION_NAME}] 📤 XHR: Sending to StableQueue...`);
-                                    
-                                    const response = await originalFetch('/stablequeue/queue_job', {
-                                        method: 'POST',
-                                        headers: { 
-                                            'Content-Type': 'application/json'
-                                        },
-                                        body: JSON.stringify(requestData)
-                                    });
-                                    
-                                    console.log(`[${EXTENSION_NAME}] 📥 XHR: StableQueue response: ${response.status}`);
-                                    
-                                    if (!response.ok) {
-                                        const text = await response.text();
-                                        const error = new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
-                                        console.log(`[${EXTENSION_NAME}] ❌ XHR: StableQueue error - setting XHR error state`);
-                                        // Restore interceptors on error
-                                        window.fetch = originalFetch;
-                                        window.XMLHttpRequest = originalXHR;
-                                        interceptionReject(error);
+                            // If this is the first interception, send to StableQueue
+                            if (!intercepted) {
+                                intercepted = true;
+                                console.log(`[${EXTENSION_NAME}] 🎯 FIRST XHR CALL - BLOCKING FORGE XHR EXECUTION - Processing with StableQueue...`);
+                                
+                                // Handle XHR interception SYNCHRONOUSLY
+                                (async () => {
+                                    try {
+                                        let apiPayload;
                                         
-                                        // Set XHR to error state
-                                        Object.defineProperty(xhr, 'status', { value: 500 });
-                                        Object.defineProperty(xhr, 'responseText', { 
-                                            value: JSON.stringify({ error: 'StableQueue error', detail: error.message })
-                                        });
-                                        Object.defineProperty(xhr, 'readyState', { value: 4 });
-                                        if (xhr.onreadystatechange) xhr.onreadystatechange();
-                                        return;
-                                    }
-                                    
-                                    const responseData = await response.json();
-                                    
-                                    if (responseData.success) {
-                                        console.log(`[${EXTENSION_NAME}] ✅ XHR: StableQueue success - Job queued! Blocking Forge XHR execution.`);
-                                        showNotification(responseData.message, 'success');
-                                        // Restore interceptors after success
-                                        window.fetch = originalFetch;
-                                        window.XMLHttpRequest = originalXHR;
-                                        interceptionResolve(responseData);
+                                        if (requestUrl.includes('/sdapi/v1/')) {
+                                            apiPayload = JSON.parse(data);
+                                        } else {
+                                            const gradioPayload = JSON.parse(data);
+                                            apiPayload = await convertGradioToSDAPI(gradioPayload, tabId);
+                                        }
                                         
-                                        // Set XHR to success state (but with our intercepted response)
-                                        console.log(`[${EXTENSION_NAME}] 🚫 XHR: Setting intercepted response to block Forge`);
-                                        Object.defineProperty(xhr, 'status', { value: 200 });
-                                        Object.defineProperty(xhr, 'responseText', { 
-                                            value: JSON.stringify({ 
-                                                success: true, 
-                                                message: 'Job queued in StableQueue',
-                                                intercepted: true
-                                            })
+                                        const requestData = {
+                                            api_payload: apiPayload,
+                                            server_alias: serverAlias,
+                                            job_type: jobType
+                                        };
+                                        
+                                        console.log(`[${EXTENSION_NAME}] 📤 XHR: Sending to StableQueue...`);
+                                        
+                                        const response = await originalFetch('/stablequeue/queue_job', {
+                                            method: 'POST',
+                                            headers: { 
+                                                'Content-Type': 'application/json'
+                                            },
+                                            body: JSON.stringify(requestData)
                                         });
-                                        Object.defineProperty(xhr, 'readyState', { value: 4 });
-                                        if (xhr.onreadystatechange) xhr.onreadystatechange();
-                                    } else {
-                                        const errorMsg = `Error: ${responseData.message || 'Unknown error'}`;
-                                        const error = new Error(errorMsg);
-                                        console.log(`[${EXTENSION_NAME}] ❌ XHR: StableQueue returned error - setting XHR error state`);
+                                        
+                                        console.log(`[${EXTENSION_NAME}] 📥 XHR: StableQueue response: ${response.status}`);
+                                        
+                                        if (!response.ok) {
+                                            const text = await response.text();
+                                            const error = new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
+                                            console.log(`[${EXTENSION_NAME}] ❌ XHR: StableQueue error - will restore interceptors on timeout`);
+                                            interceptionReject(error);
+                                        } else {
+                                            const responseData = await response.json();
+                                            
+                                            if (responseData.success) {
+                                                console.log(`[${EXTENSION_NAME}] ✅ XHR: StableQueue success - Job queued! Keeping interception active.`);
+                                                showNotification(responseData.message, 'success');
+                                                interceptionResolve(responseData);
+                                            } else {
+                                                const errorMsg = `Error: ${responseData.message || 'Unknown error'}`;
+                                                const error = new Error(errorMsg);
+                                                console.log(`[${EXTENSION_NAME}] ❌ XHR: StableQueue returned error - will restore interceptors on timeout`);
+                                                showNotification(errorMsg, 'error');
+                                                interceptionReject(error);
+                                            }
+                                        }
+                                        
+                                    } catch (error) {
+                                        console.error(`[${EXTENSION_NAME}] Error processing intercepted XHR:`, error);
+                                        const errorMsg = `Error: ${error.message}`;
                                         showNotification(errorMsg, 'error');
-                                        // Restore interceptors on error
-                                        window.fetch = originalFetch;
-                                        window.XMLHttpRequest = originalXHR;
                                         interceptionReject(error);
-                                        
-                                        // Set XHR to error state
-                                        Object.defineProperty(xhr, 'status', { value: 500 });
-                                        Object.defineProperty(xhr, 'responseText', { 
-                                            value: JSON.stringify({ error: errorMsg })
-                                        });
-                                        Object.defineProperty(xhr, 'readyState', { value: 4 });
-                                        if (xhr.onreadystatechange) xhr.onreadystatechange();
                                     }
-                                    
-                                } catch (error) {
-                                    console.error(`[${EXTENSION_NAME}] Error processing intercepted XHR:`, error);
-                                    const errorMsg = `Error: ${error.message}`;
-                                    showNotification(errorMsg, 'error');
-                                    // Restore interceptors on any error
-                                    window.fetch = originalFetch;
-                                    window.XMLHttpRequest = originalXHR;
-                                    interceptionReject(error);
-                                    
-                                    // Set XHR to error state
-                                    console.log(`[${EXTENSION_NAME}] 🚫 XHR: Setting error response to block Forge`);
-                                    Object.defineProperty(xhr, 'status', { value: 500 });
-                                    Object.defineProperty(xhr, 'responseText', { 
-                                        value: JSON.stringify({ error: 'StableQueue interception failed', detail: error.message })
-                                    });
-                                    Object.defineProperty(xhr, 'readyState', { value: 4 });
-                                    if (xhr.onreadystatechange) xhr.onreadystatechange();
-                                }
-                            })();
+                                })();
+                            } else {
+                                // This is a subsequent XHR call - just block it
+                                console.log(`[${EXTENSION_NAME}] 🚫 BLOCKING SUBSEQUENT XHR CALL: ${requestUrl}`);
+                            }
+                            
+                            // Set XHR to blocked state for ALL intercepted calls
+                            setTimeout(() => {
+                                console.log(`[${EXTENSION_NAME}] 🚫 XHR: Setting blocked response`);
+                                Object.defineProperty(xhr, 'status', { value: 200 });
+                                Object.defineProperty(xhr, 'responseText', { 
+                                    value: JSON.stringify({ 
+                                        success: false, 
+                                        message: 'Request blocked by StableQueue - job queued remotely',
+                                        intercepted: true,
+                                        blocked: true
+                                    })
+                                });
+                                Object.defineProperty(xhr, 'readyState', { value: 4 });
+                                if (xhr.onreadystatechange) xhr.onreadystatechange();
+                            }, 10);
                             
                             // Immediately block the original XHR from executing
                             console.log(`[${EXTENSION_NAME}] 🚫 XHR: Immediately blocking original XHR execution`);
@@ -639,8 +604,17 @@
                         }, 10000)) // Increased timeout to 10 seconds
                     ]);
                     
+                    // Set a timer to restore interceptors after successful interception
+                    setTimeout(() => {
+                        console.log(`[${EXTENSION_NAME}] ⏰ Restoring interceptors after 5 seconds to allow normal operation`);
+                        window.fetch = originalFetch;
+                        window.XMLHttpRequest = originalXHR;
+                    }, 5000); // Restore after 5 seconds
+                    
                     resolve(result);
                 } catch (error) {
+                    // Always restore interceptors on error or timeout
+                    console.log(`[${EXTENSION_NAME}] ⏰ Restoring interceptors due to error or timeout`);
                     window.fetch = originalFetch;
                     window.XMLHttpRequest = originalXHR;
                 
