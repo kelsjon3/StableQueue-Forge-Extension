@@ -48,6 +48,8 @@ class StableQueueScript(scripts.Script):
         This hook is called with the complete StableDiffusionProcessing object
         containing all parameters from UI and extensions.
         """
+        global pending_queue_request
+        
         try:
             # Get StableQueue settings
             server_url = shared.opts.data.get("stablequeue_server_url", "")
@@ -55,8 +57,11 @@ class StableQueueScript(scripts.Script):
             api_secret = shared.opts.data.get("stablequeue_api_secret", "")
             auto_queue = shared.opts.data.get("stablequeue_auto_queue", False)
             
-            if not auto_queue or not all([server_url, api_key, api_secret]):
-                # Auto-queueing disabled or credentials not configured
+            # Check if there's a pending manual queue request
+            manual_queue = pending_queue_request.get("enabled", False)
+            
+            if not (auto_queue or manual_queue) or not all([server_url, api_key, api_secret]):
+                # Neither auto-queueing nor manual queue enabled, or credentials not configured
                 return
                 
             print(f"[StableQueue] Intercepting generation with {len(p.script_args)} script args")
@@ -64,23 +69,34 @@ class StableQueueScript(scripts.Script):
             # Extract complete parameters
             params = self.extract_complete_parameters(p)
             
+            # Use server alias from pending request if manual queue, otherwise default
+            target_server = pending_queue_request.get("server_alias", "") if manual_queue else ""
+            job_type = pending_queue_request.get("job_type", "single") if manual_queue else "single"
+            
             # Submit to StableQueue
             success = self.submit_to_stablequeue(params, server_url, api_key, api_secret)
             
+            # Clear pending request after processing
+            if manual_queue:
+                pending_queue_request["enabled"] = False
+                pending_queue_request["server_alias"] = ""
+                pending_queue_request["job_type"] = "single"
+            
             if success:
-                print(f"[StableQueue] ✓ Job queued successfully, preventing local generation")
+                queue_type = "Manual" if manual_queue else "Auto"
+                print(f"[StableQueue] ✓ {queue_type} job queued successfully, preventing local generation")
                 
                 # Prevent local generation by returning empty result
                 return Processed(
                     p,
                     images_list=[],
                     seed=p.seed,
-                    info="Job queued in StableQueue - local generation skipped",
+                    info=f"Job queued in StableQueue ({queue_type.lower()}) - local generation skipped",
                     subseed=p.subseed,
                     all_prompts=[p.prompt],
                     all_seeds=[p.seed],
                     all_subseeds=[p.subseed],
-                    infotexts=["Job queued in StableQueue"]
+                    infotexts=[f"Job queued in StableQueue ({queue_type.lower()})"]
                 )
             else:
                 print(f"[StableQueue] ✗ Failed to queue job, allowing local generation")
@@ -225,6 +241,101 @@ class StableQueueScript(scripts.Script):
         except Exception as e:
             print(f"[StableQueue] ✗ Error submitting job: {e}")
             return False
+
+    def extract_current_ui_parameters(self, tab_id):
+        """Extract current UI parameters by creating a StableDiffusionProcessing object"""
+        try:
+            from modules import txt2img, img2img
+            from modules.processing import StableDiffusionProcessingTxt2Img, StableDiffusionProcessingImg2Img
+            from modules import shared
+            
+            print(f"[StableQueue] Extracting parameters from {tab_id} tab")
+            
+            # Get current UI values from shared state
+            if tab_id == 'txt2img':
+                # Create a StableDiffusionProcessing object like txt2img would
+                p = StableDiffusionProcessingTxt2Img(
+                    sd_model=shared.sd_model,
+                    outpath_samples=shared.opts.outdir_samples or shared.opts.outdir_txt2img_samples,
+                    outpath_grids=shared.opts.outdir_grids or shared.opts.outdir_txt2img_grids,
+                    prompt="",  # Will be filled from UI
+                    negative_prompt="",
+                    steps=20,
+                    sampler_name="Euler",
+                    cfg_scale=7.0,
+                    width=512,
+                    height=512,
+                    # These will be populated from actual UI values
+                )
+            else:  # img2img
+                p = StableDiffusionProcessingImg2Img(
+                    sd_model=shared.sd_model,
+                    outpath_samples=shared.opts.outdir_samples or shared.opts.outdir_img2img_samples,
+                    outpath_grids=shared.opts.outdir_grids or shared.opts.outdir_img2img_grids,
+                    prompt="",
+                    negative_prompt="",
+                    steps=20,
+                    sampler_name="Euler", 
+                    cfg_scale=7.0,
+                    width=512,
+                    height=512,
+                    init_images=[],
+                    denoising_strength=0.75,
+                )
+            
+            # TODO: Populate p with actual current UI values
+            # For now, extract what we can from the processing object
+            params = self.extract_complete_parameters(p)
+            
+            print(f"[StableQueue] Extracted {len(params)} parameters from {tab_id}")
+            return params
+            
+        except Exception as e:
+            print(f"[StableQueue] Error in extract_current_ui_parameters: {e}")
+            raise
+
+    def queue_job_from_javascript(self, payload_data, server_alias, job_type="single"):
+        """Queue job from JavaScript frontend"""
+        try:
+            # Get StableQueue settings
+            server_url = shared.opts.data.get("stablequeue_server_url", DEFAULT_SERVER_URL)
+            api_key = shared.opts.data.get("stablequeue_api_key", "")
+            api_secret = shared.opts.data.get("stablequeue_api_secret", "")
+            
+            if not all([server_url, api_key, api_secret]):
+                return {"success": False, "message": "StableQueue credentials not configured in Settings"}
+            
+            print(f"[StableQueue] Processing JavaScript job: {job_type} for server {server_alias}")
+            
+            # For context menu data, use payload directly
+            if isinstance(payload_data, dict) and 'prompt' in payload_data:
+                # This looks like complete generation parameters
+                params = payload_data
+            else:
+                # This might be incomplete - for now just pass through
+                params = payload_data
+            
+            # Submit to StableQueue
+            success = self.submit_to_stablequeue(params, server_url, api_key, api_secret)
+            
+            if success:
+                return {"success": True, "message": f"{job_type.title()} job queued successfully on {server_alias}"}
+            else:
+                return {"success": False, "message": "Failed to queue job in StableQueue"}
+                
+        except Exception as e:
+            print(f"[StableQueue] Error in queue_job_from_javascript: {e}")
+            return {"success": False, "message": f"Error: {str(e)}"}
+
+# Global state for manual queue triggers
+pending_queue_request = {
+    "enabled": False,
+    "server_alias": "",
+    "job_type": "single"
+}
+
+# Create global instance
+stablequeue_instance = StableQueueScript()
 
 def on_ui_settings():
     """Add StableQueue settings to the Settings tab"""
@@ -500,29 +611,62 @@ def setup_javascript_api(demo=None, app=None):
             print(f"[StableQueue] FastAPI not available")
             return
         
-        # Register the endpoint
-        @app.post("/stablequeue/queue_job")
-        async def queue_job_api(request: Request):
+        # Register the endpoints
+        @app.post("/stablequeue/trigger_queue")
+        async def trigger_queue_api(request: Request):
             try:
-                print(f"[StableQueue] /stablequeue/queue_job endpoint called")
+                print(f"[StableQueue] /stablequeue/trigger_queue endpoint called")
                 
                 # Get request data
                 data = await request.json()
-                api_payload_json = json.dumps(data.get('api_payload', {}))
+                tab_id = data.get('tab_id', '')
+                job_type = data.get('job_type', 'single')
+                server_alias = data.get('server_alias', '')
+                
+                print(f"[StableQueue] Setting queue flag: tab={tab_id}, type={job_type}, server={server_alias}")
+                
+                # Set the pending queue request - AlwaysOnScript will intercept next generation
+                global pending_queue_request
+                pending_queue_request["enabled"] = True
+                pending_queue_request["server_alias"] = server_alias
+                pending_queue_request["job_type"] = job_type
+                
+                print(f"[StableQueue] Queue flag set - ready to intercept StableDiffusionProcessing object")
+                
+                return JSONResponse(content={
+                    "success": True,
+                    "message": f"Queue flag set for {job_type} job on {server_alias}"
+                })
+                
+            except Exception as e:
+                print(f"[StableQueue] Error in trigger_queue_api: {e}")
+                return JSONResponse(
+                    content={"success": False, "message": f"API Error: {str(e)}"}, 
+                    status_code=500
+                )
+
+        @app.post("/stablequeue/context_menu_queue")
+        async def context_menu_queue_api(request: Request):
+            try:
+                print(f"[StableQueue] /stablequeue/context_menu_queue endpoint called")
+                
+                # Get request data
+                data = await request.json()
+                context_data = data.get('context_data', {})
                 server_alias = data.get('server_alias', '')
                 job_type = data.get('job_type', 'single')
                 
-                print(f"[StableQueue] Processing job: server={server_alias}, type={job_type}")
+                print(f"[StableQueue] Context menu queue: type={job_type}, server={server_alias}")
                 
-                # Call our queue function with the complete API payload
-                result = stablequeue_instance.queue_job_from_javascript(api_payload, server_alias, job_type)
+                # Process context menu data directly
+                result = stablequeue_instance.queue_job_from_javascript(context_data, server_alias, job_type)
                 
-                print(f"[StableQueue] Job result: {result}")
+                print(f"[StableQueue] Context menu result: {result}")
                 
                 return JSONResponse(content=result)
                 
             except Exception as e:
-                print(f"[StableQueue] Error in queue_job_api: {e}")
+                print(f"[StableQueue] Error in context_menu_queue_api: {e}")
                 return JSONResponse(
                     content={"success": False, "message": f"API Error: {str(e)}"}, 
                     status_code=500
