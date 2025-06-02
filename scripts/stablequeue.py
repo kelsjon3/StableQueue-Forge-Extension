@@ -387,9 +387,9 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
         # Log received parameters for debugging
         print(f"[StableQueue] Complete API payload received: {api_payload}")
         
-        # Handle different payload types
+        # Handle different payload types - always send raw to backend for processing
         if isinstance(api_payload, dict) and api_payload.get('type') == 'gradio':
-            print(f"[StableQueue] Processing raw Gradio payload to preserve all extension parameters")
+            print(f"[StableQueue] Forwarding raw Gradio payload to backend for processing")
             # Extract the raw Gradio payload
             raw_gradio = api_payload.get('raw_payload', {})
             tab_id = api_payload.get('tab_id', 'unknown')
@@ -398,8 +398,8 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
             print(f"[StableQueue] Raw Gradio payload from {tab_id} tab, URL: {url}")
             print(f"[StableQueue] Gradio data length: {len(raw_gradio.get('data', []))}")
             
-            # Send the raw Gradio payload to StableQueue for processing
-            # StableQueue backend can handle the conversion or pass it through
+            # Send the complete raw payload to the backend for processing
+            # The backend will handle the conversion to preserve ALL extension parameters
             generation_params = {
                 'type': 'gradio_raw',
                 'raw_payload': raw_gradio,
@@ -409,8 +409,8 @@ def queue_job_from_javascript(api_payload_json, server_alias, job_type="single")
                 'fn_index': raw_gradio.get('fn_index', 0)
             }
         else:
-            print(f"[StableQueue] Processing standard SDAPI payload")
-            # This is a standard /sdapi/v1/ payload or already converted
+            print(f"[StableQueue] Forwarding standard payload to backend")
+            # This is a standard /sdapi/v1/ payload - forward as-is
             generation_params = api_payload
         
         # Get current settings directly (more reliable than creating new instance)
