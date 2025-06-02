@@ -640,14 +640,14 @@ def setup_javascript_api(demo=None, app=None):
                 
             except Exception as e:
                 print(f"[StableQueue] Error in queue_job_api: {e}")
-                return JSONResponse(
-                    content={"success": False, "message": f"API Error: {str(e)}"}, 
-                    status_code=500
-                )
+                    return JSONResponse(
+                        content={"success": False, "message": f"API Error: {str(e)}"}, 
+                        status_code=500
+                    )
         
         print(f"[StableQueue] Successfully registered /stablequeue/queue_job endpoint")
         api_setup_completed = True
-                
+                    
     except Exception as e:
         print(f"[StableQueue] Could not setup JavaScript API: {e}")
         import traceback
@@ -655,7 +655,7 @@ def setup_javascript_api(demo=None, app=None):
 
 # Register the setup function with multiple callbacks to ensure it runs
 print(f"[StableQueue] Registering API setup callbacks...")
-script_callbacks.on_app_started(setup_javascript_api)
+script_callbacks.on_app_started(setup_javascript_api) 
 
 # Remove on_ui_started as it doesn't exist in this Forge version
 # def setup_api_on_ui_start():
