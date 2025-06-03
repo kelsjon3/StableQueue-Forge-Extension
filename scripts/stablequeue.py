@@ -241,12 +241,19 @@ class StableQueueScript(scripts.Script):
         This hook is called with the complete StableDiffusionProcessing object
         containing all parameters from UI and extensions.
         
-        Uses both direct Gradio integration and global flags to detect queue intent.
+        NOTE: Since Phase 3, queue buttons work independently and don't use this hook.
+        This hook is kept for potential future use but currently disabled.
         """
         try:
+            # Phase 3: Queue buttons now work independently, so this hook is not needed
+            # Just continue with normal processing for all requests
+            print(f"[StableQueue] Process hook called but bypassed - queue buttons work independently")
+            return None
+            
+            # DISABLED CODE - kept for reference:
             # Extract our UI component values from args
             # args order: [queue_intent, bulk_intent, selected_server]
-            if len(args) >= 3:
+            if False and len(args) >= 3:  # Disabled with False and
                 queue_intent = args[0] if args[0] is not None else False
                 bulk_intent = args[1] if args[1] is not None else False
                 selected_server = args[2] if args[2] is not None else ""
