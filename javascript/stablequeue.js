@@ -8,6 +8,80 @@
     
     console.log(`[${EXTENSION_NAME}] JavaScript UI loading...`);
 
+    // Add generation trigger functionality
+    function addGenerationTriggers() {
+        console.log(`[${EXTENSION_NAME}] Setting up generation triggers for queue buttons...`);
+        
+        // Monitor for queue button clicks and trigger generation
+        function setupButtonTrigger(buttonId, generateButtonId) {
+            const interval = setInterval(() => {
+                const queueBtn = document.querySelector(`#${buttonId}`);
+                const generateBtn = document.querySelector(`#${generateButtonId}`);
+                
+                if (queueBtn && generateBtn && !queueBtn.hasAttribute('data-stablequeue-setup')) {
+                    queueBtn.setAttribute('data-stablequeue-setup', 'true');
+                    
+                    // Add click handler to trigger generation after queue setup
+                    queueBtn.addEventListener('click', async () => {
+                        console.log(`[${EXTENSION_NAME}] Queue button clicked, triggering generation pipeline...`);
+                        
+                        // Wait a brief moment for the queue state to be set
+                        setTimeout(() => {
+                            console.log(`[${EXTENSION_NAME}] Triggering ${generateButtonId} to capture parameters...`);
+                            generateBtn.click();
+                        }, 100);
+                    });
+                    
+                    console.log(`[${EXTENSION_NAME}] Successfully set up trigger for ${buttonId} -> ${generateButtonId}`);
+                    clearInterval(interval);
+                }
+            }, 1000);
+            
+            // Clean up after 30 seconds if not found
+            setTimeout(() => clearInterval(interval), 30000);
+        }
+        
+        // Set up triggers for both txt2img and img2img tabs
+        setupButtonTrigger('stablequeue_server_txt2img', 'txt2img_generate');
+        setupButtonTrigger('stablequeue_server_img2img', 'img2img_generate');
+        
+        // Also try with different element IDs that might be used
+        setTimeout(() => {
+            const allButtons = document.querySelectorAll('button');
+            allButtons.forEach(btn => {
+                if (btn.textContent.includes('Queue in StableQueue') && !btn.hasAttribute('data-stablequeue-setup')) {
+                    btn.setAttribute('data-stablequeue-setup', 'true');
+                    
+                    btn.addEventListener('click', async () => {
+                        console.log(`[${EXTENSION_NAME}] Queue button found via text search, triggering generation...`);
+                        
+                        // Find the appropriate generate button based on the current tab
+                        const activeTab = document.querySelector('[id*="tab_"][style*="block"], [id*="tab_"]:not([style*="none"])');
+                        let generateBtn = null;
+                        
+                        if (activeTab && activeTab.id.includes('txt2img')) {
+                            generateBtn = document.querySelector('#txt2img_generate');
+                        } else if (activeTab && activeTab.id.includes('img2img')) {
+                            generateBtn = document.querySelector('#img2img_generate');
+                        } else {
+                            // Fallback: try both
+                            generateBtn = document.querySelector('#txt2img_generate') || document.querySelector('#img2img_generate');
+                        }
+                        
+                        if (generateBtn) {
+                            setTimeout(() => {
+                                console.log(`[${EXTENSION_NAME}] Triggering generate button to capture parameters...`);
+                                generateBtn.click();
+                            }, 100);
+                        } else {
+                            console.error(`[${EXTENSION_NAME}] Could not find generate button to trigger`);
+                        }
+                    });
+                }
+            });
+        }, 2000);
+    }
+
     // Phase 2: No longer need to add buttons via JavaScript
     // Queue buttons are now integrated directly via Gradio in the Python Script.ui() method
     function addQueueButtons() {
@@ -47,7 +121,7 @@
         
         notificationArea.appendChild(notification);
         
-                            setTimeout(() => {
+        setTimeout(() => {
             if (notification.parentNode) {
                 notification.parentNode.removeChild(notification);
             }
@@ -132,6 +206,7 @@
     function initialize() {
         console.log(`[${EXTENSION_NAME}] Initializing UI...`);
         addQueueButtons();
+        addGenerationTriggers();
         registerContextMenuHandlers();
     }
 
