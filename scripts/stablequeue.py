@@ -49,7 +49,77 @@ class StableQueueScript(scripts.Script):
         return scripts.AlwaysVisible
 
     def ui(self, is_img2img):
-        return []
+        """Create Gradio UI components for StableQueue integration"""
+        
+        # Refresh servers list on UI load
+        if not self.servers_list:
+            self.fetch_servers()
+        
+        with gr.Accordion("StableQueue", open=False):
+            with gr.Row():
+                # Server selection dropdown
+                server_dropdown = gr.Dropdown(
+                    label="Target Server",
+                    choices=self.servers_list if self.servers_list else ["Configure API key in settings"],
+                    value=self.servers_list[0] if self.servers_list else "Configure API key in settings",
+                    elem_id=f"stablequeue_server_{'img2img' if is_img2img else 'txt2img'}"
+                )
+                
+                # Refresh servers button
+                refresh_btn = gr.Button("🔄", scale=0, min_width=40)
+            
+            with gr.Row():
+                # Queue buttons
+                queue_btn = gr.Button("Queue in StableQueue", variant="primary")
+                bulk_queue_btn = gr.Button("Bulk Queue", variant="secondary")
+            
+            # Status display
+            status_display = gr.HTML("")
+            
+            # Queue intent flags (hidden from user)
+            queue_intent = gr.State(False)
+            bulk_intent = gr.State(False)
+            selected_server = gr.State("")
+            
+            # Event handlers
+            def refresh_servers():
+                if self.fetch_servers():
+                    choices = self.servers_list if self.servers_list else ["Configure API key in settings"]
+                    value = self.servers_list[0] if self.servers_list else "Configure API key in settings"
+                    return gr.Dropdown.update(choices=choices, value=value), f"<span style='color:green'>✓ Found {len(self.servers_list)} server(s)</span>"
+                else:
+                    return gr.Dropdown.update(choices=["Configure API key in settings"], value="Configure API key in settings"), "<span style='color:red'>✗ Failed to refresh servers</span>"
+            
+            def set_queue_intent(server_alias):
+                if not server_alias or server_alias == "Configure API key in settings":
+                    return False, "", "<span style='color:red'>✗ Please select a valid server</span>"
+                return True, server_alias, f"<span style='color:blue'>Queue intent set for server: {server_alias}</span>"
+            
+            def set_bulk_intent(server_alias):
+                if not server_alias or server_alias == "Configure API key in settings":
+                    return False, "", "<span style='color:red'>✗ Please select a valid server</span>"
+                return True, server_alias, f"<span style='color:blue'>Bulk queue intent set for server: {server_alias}</span>"
+            
+            # Wire up the event handlers
+            refresh_btn.click(
+                fn=refresh_servers,
+                outputs=[server_dropdown, status_display]
+            )
+            
+            queue_btn.click(
+                fn=set_queue_intent,
+                inputs=[server_dropdown],
+                outputs=[queue_intent, selected_server, status_display]
+            )
+            
+            bulk_queue_btn.click(
+                fn=set_bulk_intent,
+                inputs=[server_dropdown], 
+                outputs=[bulk_intent, selected_server, status_display]
+            )
+        
+        # Return the components in the order expected by script_args
+        return [queue_intent, bulk_intent, selected_server]
     
     def fetch_servers(self):
         """Fetch available server aliases from StableQueue"""
@@ -82,17 +152,71 @@ class StableQueueScript(scripts.Script):
         This hook is called with the complete StableDiffusionProcessing object
         containing all parameters from UI and extensions.
         
-        TODO: Implement logic to determine if this was triggered by a queue button
-        based on the new direct Gradio integration approach.
+        Uses the new direct Gradio integration approach to detect queue intent.
         """
         try:
-            # TODO: Phase 2 - Implement queue intent detection
-            # For now, continue with normal processing (no queuing)
+            # Extract our UI component values from args
+            # args order: [queue_intent, bulk_intent, selected_server]
+            if len(args) >= 3:
+                queue_intent = args[0] if args[0] is not None else False
+                bulk_intent = args[1] if args[1] is not None else False
+                selected_server = args[2] if args[2] is not None else ""
+                
+                print(f"[StableQueue] Process hook - queue_intent: {queue_intent}, bulk_intent: {bulk_intent}, server: {selected_server}")
+                
+                # Check if this is a queue request
+                if queue_intent or bulk_intent:
+                    job_type = "bulk" if bulk_intent else "single"
+                    
+                    # Validate server selection
+                    if not selected_server or selected_server == "Configure API key in settings":
+                        print(f"[StableQueue] ✗ No valid server selected, allowing local generation")
+                        return None
+                    
+                    # Get StableQueue settings
+                    server_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
+                    api_key = shared.opts.data.get("stablequeue_api_key", "")
+                    api_secret = shared.opts.data.get("stablequeue_api_secret", "")
+                    
+                    if not all([server_url, api_key, api_secret]):
+                        print(f"[StableQueue] ✗ Credentials not configured, allowing local generation")
+                        return None
+                    
+                    print(f"[StableQueue] ✓ Intercepting generation for {job_type} queue on server: {selected_server}")
+                    
+                    # Extract complete parameters using our proven method
+                    params = self.extract_complete_parameters(p)
+                    
+                    # Submit to StableQueue
+                    success = self.submit_to_stablequeue(params, server_url, api_key, api_secret)
+                    
+                    if success:
+                        print(f"[StableQueue] ✓ {job_type.title()} job queued successfully, preventing local generation")
+                        
+                        # Prevent local generation by returning empty result
+                        return Processed(
+                            p,
+                            images_list=[],
+                            seed=p.seed,
+                            info=f"Job queued in StableQueue ({job_type}) - local generation skipped",
+                            subseed=p.subseed,
+                            all_prompts=[p.prompt],
+                            all_seeds=[p.seed],
+                            all_subseeds=[p.subseed],
+                            infotexts=[f"Job queued in StableQueue ({job_type}) on {selected_server}"]
+                        )
+                    else:
+                        print(f"[StableQueue] ✗ Failed to queue {job_type} job, allowing local generation")
+                        return None
+            
+            # No queue intent - continue with normal processing
             return None
                 
         except Exception as e:
             print(f"[StableQueue] Error in process hook: {e}")
-            return None  # Continue with normal processing
+            import traceback
+            print(f"[StableQueue] Full traceback: {traceback.format_exc()}")
+            return None  # Continue with normal processing on error
 
     def extract_complete_parameters(self, p: StableDiffusionProcessing):
         """Extract all parameters from the StableDiffusionProcessing object"""
