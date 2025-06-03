@@ -85,87 +85,7 @@ class StableQueueScript(scripts.Script):
                 else:
                     return gr.Dropdown.update(choices=["Configure API key in settings"], value="Configure API key in settings"), "<span style='color:red'>✗ Failed to refresh servers</span>"
             
-            def queue_job_now(server_alias):
-                """Queue job immediately by extracting current UI parameters"""
-                if not server_alias or server_alias == "Configure API key in settings":
-                    return False, "", "<span style='color:red'>✗ Please select a valid server</span>"
-                
-                print(f"[StableQueue] Queue button clicked for server: {server_alias}")
-                
-                try:
-                    # Get StableQueue settings
-                    server_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
-                    api_key = shared.opts.data.get("stablequeue_api_key", "")
-                    api_secret = shared.opts.data.get("stablequeue_api_secret", "")
-                    
-                    if not all([server_url, api_key, api_secret]):
-                        return False, "", "<span style='color:red'>✗ StableQueue credentials not configured in settings</span>"
-                    
-                    # Extract current UI parameters
-                    tab_id = 'img2img' if is_img2img else 'txt2img'
-                    params = self.extract_current_ui_parameters(tab_id)
-                    
-                    # Set the target server alias
-                    params["target_server_alias"] = server_alias
-                    
-                    # Submit to StableQueue
-                    success = self.submit_to_stablequeue(params, server_url, api_key, api_secret)
-                    
-                    if success:
-                        return True, server_alias, f"<span style='color:green'>✓ Job queued successfully on {server_alias}</span>"
-                    else:
-                        return False, "", f"<span style='color:red'>✗ Failed to queue job on {server_alias}</span>"
-                        
-                except Exception as e:
-                    print(f"[StableQueue] Error in queue_job_now: {e}")
-                    return False, "", f"<span style='color:red'>✗ Error: {str(e)}</span>"
-            
-            def bulk_queue_job_now(server_alias):
-                """Bulk queue job immediately by extracting current UI parameters"""
-                if not server_alias or server_alias == "Configure API key in settings":
-                    return False, "", "<span style='color:red'>✗ Please select a valid server</span>"
-                
-                print(f"[StableQueue] Bulk queue button clicked for server: {server_alias}")
-                
-                try:
-                    # Get StableQueue settings
-                    server_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
-                    api_key = shared.opts.data.get("stablequeue_api_key", "")
-                    api_secret = shared.opts.data.get("stablequeue_api_secret", "")
-                    
-                    if not all([server_url, api_key, api_secret]):
-                        return False, "", "<span style='color:red'>✗ StableQueue credentials not configured in settings</span>"
-                    
-                    # Extract current UI parameters
-                    tab_id = 'img2img' if is_img2img else 'txt2img'
-                    params = self.extract_current_ui_parameters(tab_id)
-                    
-                    # Set the target server alias
-                    params["target_server_alias"] = server_alias
-                    
-                    # Get bulk quantity from settings
-                    bulk_quantity = shared.opts.data.get("stablequeue_bulk_quantity", 10)
-                    
-                    # Submit multiple jobs
-                    success_count = 0
-                    for i in range(bulk_quantity):
-                        # Vary the seed for each job
-                        bulk_params = params.copy()
-                        if bulk_params.get('seed', -1) != -1:
-                            bulk_params['seed'] = bulk_params['seed'] + i
-                        
-                        success = self.submit_to_stablequeue(bulk_params, server_url, api_key, api_secret)
-                        if success:
-                            success_count += 1
-                    
-                    if success_count > 0:
-                        return True, server_alias, f"<span style='color:green'>✓ {success_count}/{bulk_quantity} bulk jobs queued on {server_alias}</span>"
-                    else:
-                        return False, "", f"<span style='color:red'>✗ Failed to queue bulk jobs on {server_alias}</span>"
-                        
-                except Exception as e:
-                    print(f"[StableQueue] Error in bulk_queue_job_now: {e}")
-                    return False, "", f"<span style='color:red'>✗ Error: {str(e)}</span>"
+
             
             # Wire up the event handlers
             refresh_btn.click(
@@ -173,49 +93,42 @@ class StableQueueScript(scripts.Script):
                 outputs=[server_dropdown, status_display]
             )
             
-            # Wire up queue buttons to set intent and trigger generation
-            def queue_and_generate(server_alias):
-                """Set queue intent and return values for the next generation"""
-                # First set the intent by queuing directly here
-                queue_intent_val, selected_server_val, status_msg = queue_job_now(server_alias)
-                
-                print(f"[StableQueue] Queue button returning: intent={queue_intent_val}, server={selected_server_val}")
-                print(f"[StableQueue] Status: {status_msg}")
-                
-                # Return as a simple success message instead of trying to trigger generation
-                if queue_intent_val:
-                    return status_msg
-                else:
-                    return status_msg
+            # Store queue intent in hidden state components for process() method
+            queue_intent = gr.State(False)
+            bulk_intent = gr.State(False)
+            selected_server = gr.State("")
             
-            def bulk_queue_and_generate(server_alias):
-                """Set bulk queue intent and return values for the next generation"""
-                # First set the intent by queuing directly here  
-                bulk_intent_val, selected_server_val, status_msg = bulk_queue_job_now(server_alias)
+            # Wire up queue buttons to set intent and return it for process() method
+            def set_queue_intent(server_alias):
+                """Set queue intent without doing manual queuing"""
+                if not server_alias or server_alias == "Configure API key in settings":
+                    return False, "", "<span style='color:red'>✗ Please select a valid server</span>"
                 
-                print(f"[StableQueue] Bulk queue button returning: intent={bulk_intent_val}, server={selected_server_val}")
-                print(f"[StableQueue] Status: {status_msg}")
+                print(f"[StableQueue] Setting queue intent for server: {server_alias}")
+                return True, server_alias, "<span style='color:orange'>⏳ Queue intent set - click Generate to queue job</span>"
+            
+            def set_bulk_intent(server_alias):
+                """Set bulk queue intent without doing manual queuing"""
+                if not server_alias or server_alias == "Configure API key in settings":
+                    return False, "", "<span style='color:red'>✗ Please select a valid server</span>"
                 
-                # Return as a simple success message instead of trying to trigger generation
-                if bulk_intent_val:
-                    return status_msg
-                else:
-                    return status_msg
+                print(f"[StableQueue] Setting bulk queue intent for server: {server_alias}")
+                return True, server_alias, "<span style='color:orange'>⏳ Bulk queue intent set - click Generate to queue jobs</span>"
             
             queue_btn.click(
-                fn=queue_and_generate,
+                fn=set_queue_intent,
                 inputs=[server_dropdown],
-                outputs=[status_display]
+                outputs=[queue_intent, selected_server, status_display]
             )
             
             bulk_queue_btn.click(
-                fn=bulk_queue_and_generate,
+                fn=set_bulk_intent,
                 inputs=[server_dropdown], 
-                outputs=[status_display]
+                outputs=[bulk_intent, selected_server, status_display]
             )
         
-        # Return empty list since we're not using script_args anymore
-        return []
+        # Return the state components so process() method can access them
+        return [queue_intent, bulk_intent, selected_server]
     
     def fetch_servers(self):
         """Fetch available server aliases from StableQueue"""
@@ -243,15 +156,120 @@ class StableQueueScript(scripts.Script):
             print(f"[StableQueue] Error fetching servers: {str(e)}")
             return False
 
-    def process(self, p, *args):
-        """Hook into the processing - currently not used since we queue directly in button handlers"""
+    def process(self, p, queue_intent, bulk_intent, selected_server, *args):
+        """Hook into the processing to handle queue intents with real parameters"""
         
-        print(f"[StableQueue] process() called - args: {args}")
-        print(f"[StableQueue] p.prompt = {getattr(p, 'prompt', 'N/A')}")
+        print(f"[StableQueue] process() called with: queue_intent={queue_intent}, bulk_intent={bulk_intent}, selected_server={selected_server}")
+        print(f"[StableQueue] p.prompt = {getattr(p, 'prompt', 'N/A')[:50]}...")
         
-        # Since we're now queueing directly in the button handlers instead of 
-        # going through the generation pipeline, this method won't be used
-        # for queue operations. It will only handle normal generation.
+        # Check if we should queue instead of generate locally
+        if queue_intent:
+            print(f"[StableQueue] Queue intent detected - extracting real parameters from p object")
+            
+            # Extract complete parameters from the real StableDiffusionProcessing object
+            params = self.extract_complete_parameters(p)
+            params["target_server_alias"] = selected_server
+            
+            # Get StableQueue settings
+            server_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
+            api_key = shared.opts.data.get("stablequeue_api_key", "")
+            api_secret = shared.opts.data.get("stablequeue_api_secret", "")
+            
+            if not all([server_url, api_key, api_secret]):
+                print(f"[StableQueue] ✗ StableQueue credentials not configured")
+                # Let normal generation continue if no credentials
+                return None
+            
+            # Submit to StableQueue
+            success = self.submit_to_stablequeue(params, server_url, api_key, api_secret)
+            
+            if success:
+                print(f"[StableQueue] ✓ Job queued successfully - preventing local generation")
+                
+                # Create placeholder result to prevent local generation
+                from modules.processing import Processed
+                from PIL import Image
+                
+                placeholder_img = Image.new('RGB', (p.width, p.height), color='lightgray')
+                
+                try:
+                    from PIL import ImageDraw
+                    draw = ImageDraw.Draw(placeholder_img)
+                    text = f"Job queued to {selected_server}"
+                    draw.text((10, 10), text, fill='black')
+                except:
+                    pass
+                
+                processed = Processed(
+                    p=p,
+                    images_list=[placeholder_img],
+                    seed=p.seed,
+                    info=f"Job queued to StableQueue server '{selected_server}' - check queue for status",
+                    comments=""
+                )
+                
+                return processed
+            else:
+                print(f"[StableQueue] ✗ Failed to queue job - allowing local generation")
+                return None
+        
+        elif bulk_intent:
+            print(f"[StableQueue] Bulk queue intent detected - extracting real parameters from p object")
+            
+            # Extract complete parameters from the real StableDiffusionProcessing object
+            base_params = self.extract_complete_parameters(p)
+            base_params["target_server_alias"] = selected_server
+            
+            # Get StableQueue settings
+            server_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
+            api_key = shared.opts.data.get("stablequeue_api_key", "")
+            api_secret = shared.opts.data.get("stablequeue_api_secret", "")
+            bulk_quantity = shared.opts.data.get("stablequeue_bulk_quantity", 10)
+            
+            if not all([server_url, api_key, api_secret]):
+                print(f"[StableQueue] ✗ StableQueue credentials not configured")
+                return None
+            
+            # Submit multiple jobs with varied seeds
+            success_count = 0
+            for i in range(bulk_quantity):
+                bulk_params = base_params.copy()
+                if bulk_params.get('seed', -1) != -1:
+                    bulk_params['seed'] = bulk_params['seed'] + i
+                
+                success = self.submit_to_stablequeue(bulk_params, server_url, api_key, api_secret)
+                if success:
+                    success_count += 1
+            
+            if success_count > 0:
+                print(f"[StableQueue] ✓ {success_count}/{bulk_quantity} bulk jobs queued - preventing local generation")
+                
+                # Create placeholder result
+                from modules.processing import Processed
+                from PIL import Image
+                
+                placeholder_img = Image.new('RGB', (p.width, p.height), color='lightblue')
+                
+                try:
+                    from PIL import ImageDraw
+                    draw = ImageDraw.Draw(placeholder_img)
+                    text = f"{success_count}/{bulk_quantity} jobs queued to {selected_server}"
+                    draw.text((10, 10), text, fill='black')
+                except:
+                    pass
+                
+                processed = Processed(
+                    p=p,
+                    images_list=[placeholder_img],
+                    seed=p.seed,
+                    info=f"{success_count}/{bulk_quantity} bulk jobs queued to StableQueue server '{selected_server}'",
+                    comments=""
+                )
+                
+                return processed
+            else:
+                print(f"[StableQueue] ✗ Failed to queue bulk jobs - allowing local generation")
+                return None
         
         # If no queue intent, let normal processing continue
         return None
@@ -313,50 +331,34 @@ class StableQueueScript(scripts.Script):
             print(f"[StableQueue] ✗ Error submitting job: {e}")
             return False
 
-    def extract_current_ui_parameters(self, tab_id):
-        """Extract current UI parameters using a simplified approach"""
+    def extract_complete_parameters(self, p):
+        """Extract complete parameters from StableDiffusionProcessing object"""
         try:
-            print(f"[StableQueue] Extracting parameters from {tab_id} tab")
+            print(f"[StableQueue] Extracting parameters from StableDiffusionProcessing object")
             
-            # Create basic parameters with default values
-            # This is a simplified approach - in a real implementation, 
-            # we would need to access the actual Gradio component values
+            # Extract core parameters directly from the p object
             params = {
-                "prompt": "Simple test prompt",  # Changed from problematic string
-                "negative_prompt": "",
-                "steps": 20,
-                "sampler_name": "Euler",
-                "cfg_scale": 7.0,
-                "width": 512,
-                "height": 512,
-                "seed": -1,
-                "subseed": -1,
-                "subseed_strength": 0,
-                "batch_size": 1,
-                "n_iter": 1,
-                "restore_faces": False,
-                "tiling": False,
+                "prompt": getattr(p, 'prompt', ''),
+                "negative_prompt": getattr(p, 'negative_prompt', ''),
+                "steps": getattr(p, 'steps', 20),
+                "sampler_name": getattr(p, 'sampler_name', 'Euler'),
+                "cfg_scale": getattr(p, 'cfg_scale', 7.0),
+                "width": getattr(p, 'width', 512),
+                "height": getattr(p, 'height', 512),
+                "seed": getattr(p, 'seed', -1),
+                "subseed": getattr(p, 'subseed', -1),
+                "subseed_strength": getattr(p, 'subseed_strength', 0),
+                "batch_size": getattr(p, 'batch_size', 1),
+                "n_iter": getattr(p, 'n_iter', 1),
+                "restore_faces": getattr(p, 'restore_faces', False),
+                "tiling": getattr(p, 'tiling', False),
                 "send_images": True,
                 "save_images": True,
-                "override_settings": {},
-                "alwayson_scripts": {}
+                "override_settings": getattr(p, 'override_settings', {}),
+                "denoising_strength": getattr(p, 'denoising_strength', 0.7),
             }
             
-            # Add tab-specific parameters
-            if tab_id == 'img2img':
-                params.update({
-                    "init_images": [],
-                    "denoising_strength": 0.75,
-                    "resize_mode": 0,
-                    "mask": None,
-                    "mask_blur": 4,
-                    "inpainting_fill": 1,
-                    "inpaint_full_res": True,
-                    "inpaint_full_res_padding": 0,
-                    "inpainting_mask_invert": 0,
-                })
-            
-            # Add model information if available
+            # Add model information
             if hasattr(shared, 'sd_model') and shared.sd_model:
                 checkpoint_info = getattr(shared.sd_model, 'sd_checkpoint_info', None)
                 if checkpoint_info:
@@ -371,13 +373,29 @@ class StableQueueScript(scripts.Script):
                 
                 params["model_hash"] = getattr(shared.sd_model, 'sd_model_hash', '')
             
-            print(f"[StableQueue] Extracted {len(params)} parameters from {tab_id}")
-            print(f"[StableQueue] Note: Using default values - actual UI parameter extraction would require more complex implementation")
+            # Extract extension parameters from script_args if available
+            if hasattr(p, 'script_args') and p.script_args:
+                params["alwayson_scripts"] = {}
+                
+                # Process script arguments - this would contain ControlNet, etc.
+                try:
+                    if hasattr(p, 'scripts') and hasattr(p.scripts, 'alwayson_scripts'):
+                        for i, script in enumerate(p.scripts.alwayson_scripts):
+                            if i < len(p.script_args) and p.script_args[i] is not None:
+                                script_name = getattr(script, 'title', f'script_{i}')
+                                params["alwayson_scripts"][script_name] = p.script_args[i]
+                except Exception as e:
+                    print(f"[StableQueue] Warning: Could not extract script args: {e}")
+                    params["alwayson_scripts"] = {}
+            
+            print(f"[StableQueue] Extracted {len(params)} core parameters from p object")
+            print(f"[StableQueue] Prompt: {params['prompt'][:100]}...")
+            print(f"[StableQueue] Steps: {params['steps']}, CFG: {params['cfg_scale']}, Size: {params['width']}x{params['height']}")
             
             return params
             
         except Exception as e:
-            print(f"[StableQueue] Error in extract_current_ui_parameters: {e}")
+            print(f"[StableQueue] Error in extract_complete_parameters: {e}")
             import traceback
             print(f"[StableQueue] Full traceback: {traceback.format_exc()}")
             raise
