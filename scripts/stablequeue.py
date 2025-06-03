@@ -182,11 +182,13 @@ class StableQueueScript(scripts.Script):
                 import traceback
                 print(f"[StableQueue] ✗ Full traceback: {traceback.format_exc()}")
                 
+                # Capture the error message now, not later
+                error_message = f"Extension failed to connect to generation pipeline: {str(e)}"
+                
                 # NO FALLBACK! Show clear error instead
                 def show_error(server_alias, job_type):
-                    error_msg = f"Extension failed to connect to generation pipeline: {str(e)}"
-                    print(f"[StableQueue] ✗ Button click failed: {error_msg}")
-                    return f"<span style='color:red'>✗ EXTENSION ERROR: {error_msg}</span>"
+                    print(f"[StableQueue] ✗ Button click failed: {error_message}")
+                    return f"<span style='color:red'>✗ EXTENSION ERROR: {error_message}</span>"
                 
                 queue_btn.click(
                     fn=lambda server: show_error(server, "single"),
