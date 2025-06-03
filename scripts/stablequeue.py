@@ -34,7 +34,7 @@ class StableQueueScript(scripts.Script):
         self.monitoring_active = False
         self.params_file_path = "params.txt"
         self.servers_list = []
-        self.queue_intent = {"pending": False, "server_alias": "", "job_type": "single"}
+        # Removed queue_intent - we now use direct parameter capture
         
         # Initialize servers list if API key is available
         server_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
@@ -55,7 +55,7 @@ class StableQueueScript(scripts.Script):
         # Refresh servers list on UI load
         if not self.servers_list:
             self.fetch_servers()
-        
+
         with gr.Accordion("StableQueue", open=False):
             with gr.Row():
                 # Server selection dropdown
@@ -70,13 +70,23 @@ class StableQueueScript(scripts.Script):
                 refresh_btn = gr.Button("🔄", scale=0, min_width=40)
             
             with gr.Row():
-                # Queue buttons that will trigger the actual generation pipeline
+                # Queue buttons
                 queue_btn = gr.Button("Queue in StableQueue", variant="primary")
                 bulk_queue_btn = gr.Button("Bulk Queue", variant="secondary")
+                # TEST BUTTON - This will show us what parameters we can capture
+                test_capture_btn = gr.Button("🔍 Test Parameter Capture", variant="secondary")
             
             # Status display
             status_display = gr.HTML("")
             
+            # Parameter display for testing
+            with gr.Accordion("Parameter Capture Test Results", open=False):
+                captured_params_display = gr.Code(
+                    language="json",
+                    label="Captured Parameters",
+                    lines=20
+                )
+
             # Event handlers
             def refresh_servers():
                 if self.fetch_servers():
@@ -85,126 +95,286 @@ class StableQueueScript(scripts.Script):
                     return gr.Dropdown.update(choices=choices, value=value), f"<span style='color:green'>✓ Found {len(self.servers_list)} server(s)</span>"
                 else:
                     return gr.Dropdown.update(choices=["Configure API key in settings"], value="Configure API key in settings"), "<span style='color:red'>✗ Failed to refresh servers</span>"
-            
-            def queue_generation_wrapper(server_alias, job_type, *args):
-                """Wrapper that sets queue intent and calls the actual generation function"""
+
+            def test_parameter_capture():
+                """Test parameter capture using research document approach"""
+                try:
+                    print(f"[StableQueue] === TESTING PARAMETER CAPTURE ===")
+                    
+                    # Use the research document's approach: runtime UI traversal
+                    params = self.capture_ui_parameters_direct(is_img2img)
+                    
+                    # Format for display
+                    import json
+                    params_json = json.dumps(params, indent=2, default=str)
+                    
+                    print(f"[StableQueue] Parameter capture test completed successfully")
+                    print(f"[StableQueue] Captured {len(params)} parameters")
+                    
+                    status_msg = f"<span style='color:green'>✓ Successfully captured {len(params)} parameters!</span>"
+                    return status_msg, params_json
+                    
+                except Exception as e:
+                    print(f"[StableQueue] ✗ Parameter capture test failed: {e}")
+                    import traceback
+                    print(f"[StableQueue] Full traceback: {traceback.format_exc()}")
+                    
+                    error_msg = f"<span style='color:red'>✗ Parameter capture failed: {str(e)}</span>"
+                    return error_msg, f"ERROR: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+
+            def queue_single_job(server_alias):
+                """Queue a single job using direct parameter capture"""
                 if not server_alias or server_alias == "Configure API key in settings":
                     return f"<span style='color:red'>✗ Please select a valid server</span>"
                 
-                print(f"[StableQueue] === QUEUE GENERATION WRAPPER DEBUG ===")
-                print(f"[StableQueue] {job_type.title()} queue button clicked - setting intent for server: {server_alias}")
-                print(f"[StableQueue] Received {len(args)} arguments from UI components")
-                print(f"[StableQueue] First few args: {args[:5] if len(args) > 5 else args}")
-                print(f"[StableQueue] Is img2img: {is_img2img}")
-                
-                # Set queue intent that will be picked up by process() hook
-                self.queue_intent = {"pending": True, "server_alias": server_alias, "job_type": job_type}
+                try:
+                    print(f"[StableQueue] === SINGLE JOB QUEUE ===")
+                    
+                    # Capture parameters directly using research approach
+                    params = self.capture_ui_parameters_direct(is_img2img)
+                    params["target_server_alias"] = server_alias
+                    
+                    # Submit to StableQueue
+                    success = self.submit_job_to_stablequeue(params)
+                    
+                    if success:
+                        return f"<span style='color:green'>✓ Single job queued successfully to {server_alias}</span>"
+                    else:
+                        return f"<span style='color:red'>✗ Failed to queue job to {server_alias}</span>"
+                        
+                except Exception as e:
+                    print(f"[StableQueue] Error in single job queue: {e}")
+                    return f"<span style='color:red'>✗ Error: {str(e)}</span>"
+
+            def queue_bulk_jobs(server_alias):
+                """Queue multiple jobs using direct parameter capture"""
+                if not server_alias or server_alias == "Configure API key in settings":
+                    return f"<span style='color:red'>✗ Please select a valid server</span>"
                 
                 try:
-                    # Call the actual generation function which will trigger process() hook
-                    from modules import txt2img, img2img
+                    print(f"[StableQueue] === BULK JOB QUEUE ===")
                     
-                    print(f"[StableQueue] About to call generation function...")
+                    # Capture base parameters
+                    params = self.capture_ui_parameters_direct(is_img2img)
+                    params["target_server_alias"] = server_alias
                     
-                    if is_img2img:
-                        print(f"[StableQueue] Calling img2img.img2img with {len(args)} arguments...")
-                        # Call img2img generation - this will trigger our process() hook
-                        result = img2img.img2img(*args)
-                    else:
-                        print(f"[StableQueue] Calling txt2img.txt2img with {len(args)} arguments...")
-                        # Call txt2img generation - this will trigger our process() hook
-                        result = txt2img.txt2img(*args)
+                    # Submit multiple jobs with seed variation
+                    bulk_quantity = shared.opts.data.get("stablequeue_bulk_quantity", 10)
+                    success_count = 0
                     
-                    print(f"[StableQueue] Generation function returned: {type(result)}")
-                    print(f"[StableQueue] Result: {result}")
+                    for i in range(bulk_quantity):
+                        bulk_params = params.copy()
+                        if bulk_params.get('seed', -1) != -1:
+                            bulk_params['seed'] = bulk_params['seed'] + i
+                        
+                        if self.submit_job_to_stablequeue(bulk_params):
+                            success_count += 1
                     
-                    # If we get here, the process() hook should have intercepted and handled the queue
-                    return f"<span style='color:green'>✓ Generation pipeline completed for {server_alias}</span>"
-                    
+                    return f"<span style='color:green'>✓ {success_count}/{bulk_quantity} bulk jobs queued successfully to {server_alias}</span>"
+                        
                 except Exception as e:
-                    print(f"[StableQueue] Error in generation wrapper: {e}")
-                    import traceback
-                    print(f"[StableQueue] Full traceback: {traceback.format_exc()}")
-                    # Reset queue intent on error
-                    self.queue_intent = {"pending": False, "server_alias": "", "job_type": "single"}
+                    print(f"[StableQueue] Error in bulk job queue: {e}")
                     return f"<span style='color:red'>✗ Error: {str(e)}</span>"
-            
+
             # Wire up the event handlers
             refresh_btn.click(
                 fn=refresh_servers,
                 outputs=[server_dropdown, status_display]
             )
             
-            # Try to get the generation inputs from the main UI
-            try:
-                # Import the UI components to get access to the input components
-                import modules.ui as ui_module
-                
-                # Get the generation inputs that the Generate button uses
-                if is_img2img:
-                    # Try to get img2img inputs
-                    if hasattr(ui_module, 'img2img_inputs') and ui_module.img2img_inputs:
-                        generation_inputs = ui_module.img2img_inputs
-                        print(f"[StableQueue] Using img2img_inputs: {len(generation_inputs)} components")
-                    else:
-                        print(f"[StableQueue] img2img_inputs not found, using minimal inputs")
-                        generation_inputs = []
-                else:
-                    # Try to get txt2img inputs
-                    if hasattr(ui_module, 'txt2img_inputs') and ui_module.txt2img_inputs:
-                        generation_inputs = ui_module.txt2img_inputs
-                        print(f"[StableQueue] Using txt2img_inputs: {len(generation_inputs)} components")
-                    else:
-                        print(f"[StableQueue] txt2img_inputs not found, using minimal inputs")
-                        generation_inputs = []
-                
-                if generation_inputs:
-                    # Connect queue buttons to the full generation pipeline
-                    queue_btn.click(
-                        fn=lambda server_alias, *args: queue_generation_wrapper(server_alias, "single", *args),
-                        inputs=[server_dropdown] + generation_inputs,
-                        outputs=[status_display]
-                    )
-                    
-                    bulk_queue_btn.click(
-                        fn=lambda server_alias, *args: queue_generation_wrapper(server_alias, "bulk", *args),
-                        inputs=[server_dropdown] + generation_inputs,
-                        outputs=[status_display]
-                    )
-                    
-                    print(f"[StableQueue] Queue buttons connected to generation pipeline with {len(generation_inputs)} inputs")
-                else:
-                    raise Exception("No generation inputs found")
-                    
-            except Exception as e:
-                print(f"[StableQueue] ✗ CRITICAL ERROR: Could not connect to generation pipeline")
-                print(f"[StableQueue] ✗ Error details: {e}")
-                import traceback
-                print(f"[StableQueue] ✗ Full traceback: {traceback.format_exc()}")
-                
-                # Capture the error message now, not later
-                error_message = f"Extension failed to connect to generation pipeline: {str(e)}"
-                
-                # NO FALLBACK! Show clear error instead
-                def show_error(server_alias, job_type):
-                    print(f"[StableQueue] ✗ Button click failed: {error_message}")
-                    return f"<span style='color:red'>✗ EXTENSION ERROR: {error_message}</span>"
-                
-                queue_btn.click(
-                    fn=lambda server: show_error(server, "single"),
-                    inputs=[server_dropdown],
-                    outputs=[status_display]
-                )
-                
-                bulk_queue_btn.click(
-                    fn=lambda server: show_error(server, "bulk"),
-                    inputs=[server_dropdown],
-                    outputs=[status_display]
-                )
+            test_capture_btn.click(
+                fn=test_parameter_capture,
+                outputs=[status_display, captured_params_display]
+            )
+            
+            queue_btn.click(
+                fn=queue_single_job,
+                inputs=[server_dropdown],
+                outputs=[status_display]
+            )
+            
+            bulk_queue_btn.click(
+                fn=queue_bulk_jobs,
+                inputs=[server_dropdown],
+                outputs=[status_display]
+            )
         
-        # Return empty list - we're using the natural generation flow
         return []
-    
+
+    def capture_ui_parameters_direct(self, is_img2img):
+        """Capture UI parameters directly using research document approach"""
+        try:
+            print(f"[StableQueue] === DIRECT UI PARAMETER CAPTURE ===")
+            print(f"[StableQueue] Target: {'img2img' if is_img2img else 'txt2img'}")
+            
+            # Get access to the main Gradio demo (as per research document)
+            if not hasattr(shared, 'demo') or not shared.demo:
+                raise Exception("shared.demo not available - cannot access Gradio UI tree")
+            
+            root_blocks = shared.demo
+            print(f"[StableQueue] Root Gradio blocks: {type(root_blocks)}")
+            
+            # Find components using runtime traversal (research document Method 1)
+            components = self.find_ui_components(root_blocks, is_img2img)
+            
+            # Extract current values from found components
+            params = {}
+            
+            # Core generation parameters
+            for param_name, component in components.items():
+                try:
+                    if component and hasattr(component, 'value'):
+                        params[param_name] = component.value
+                        print(f"[StableQueue] Captured {param_name}: {component.value}")
+                    else:
+                        print(f"[StableQueue] ⚠ Component {param_name} has no value attribute")
+                        params[param_name] = None
+                except Exception as e:
+                    print(f"[StableQueue] ⚠ Error getting value for {param_name}: {e}")
+                    params[param_name] = None
+            
+            # Add metadata
+            from datetime import datetime
+            params["_capture_method"] = "direct_ui_traversal"
+            params["_capture_timestamp"] = str(datetime.now())
+            params["_is_img2img"] = is_img2img
+            
+            # Add model information from shared state
+            if hasattr(shared, 'sd_model') and shared.sd_model:
+                checkpoint_info = getattr(shared.sd_model, 'sd_checkpoint_info', None)
+                if checkpoint_info:
+                    params["checkpoint_name"] = getattr(checkpoint_info, 'name', str(checkpoint_info))
+                else:
+                    params["checkpoint_name"] = ''
+                params["model_hash"] = getattr(shared.sd_model, 'sd_model_hash', '')
+            
+            print(f"[StableQueue] Direct capture completed: {len(params)} parameters")
+            return params
+            
+        except Exception as e:
+            print(f"[StableQueue] Error in direct parameter capture: {e}")
+            import traceback
+            print(f"[StableQueue] Full traceback: {traceback.format_exc()}")
+            raise
+
+    def find_ui_components(self, root_blocks, is_img2img):
+        """Find UI components using runtime traversal (research document approach)"""
+        try:
+            print(f"[StableQueue] === UI COMPONENT DISCOVERY ===")
+            
+            # Define target elem_ids based on common A1111/Forge patterns
+            if is_img2img:
+                target_elem_ids = {
+                    "prompt": "img2img_prompt",
+                    "negative_prompt": "img2img_neg_prompt", 
+                    "steps": "img2img_steps",
+                    "cfg_scale": "img2img_cfg_scale",
+                    "width": "img2img_width",
+                    "height": "img2img_height",
+                    "sampler": "img2img_sampling",
+                    "seed": "img2img_seed",
+                    "denoising_strength": "img2img_denoising_strength"
+                }
+            else:
+                target_elem_ids = {
+                    "prompt": "txt2img_prompt",
+                    "negative_prompt": "txt2img_neg_prompt",
+                    "steps": "txt2img_steps", 
+                    "cfg_scale": "txt2img_cfg_scale",
+                    "width": "txt2img_width",
+                    "height": "txt2img_height",
+                    "sampler": "txt2img_sampling",
+                    "seed": "txt2img_seed"
+                }
+            
+            # Use recursive traversal to find components
+            found_components = {}
+            
+            for param_name, elem_id in target_elem_ids.items():
+                component = self.find_component_recursive(root_blocks, elem_id=elem_id)
+                found_components[param_name] = component
+                
+                if component:
+                    print(f"[StableQueue] ✓ Found {param_name} (elem_id: {elem_id})")
+                else:
+                    print(f"[StableQueue] ✗ Missing {param_name} (elem_id: {elem_id})")
+            
+            # Count successful discoveries
+            found_count = sum(1 for comp in found_components.values() if comp is not None)
+            missing_count = len(target_elem_ids) - found_count
+            
+            print(f"[StableQueue] Discovery result: {found_count} found, {missing_count} missing")
+            
+            if found_count == 0:
+                raise Exception("Failed to find any UI components - all target elem_ids missing")
+            
+            if missing_count > 0:
+                missing_list = [name for name, comp in found_components.items() if comp is None]
+                print(f"[StableQueue] ⚠ Missing components: {missing_list}")
+                
+                # FAIL FAST if critical components are missing (as user requested)
+                critical_components = ["prompt", "steps", "cfg_scale", "width", "height"]
+                missing_critical = [name for name in missing_list if name in critical_components]
+                
+                if missing_critical:
+                    raise Exception(f"Critical components missing: {missing_critical}. Cannot capture parameters reliably.")
+            
+            return found_components
+            
+        except Exception as e:
+            print(f"[StableQueue] Error in component discovery: {e}")
+            raise
+
+    def find_component_recursive(self, element, elem_id=None, label=None, component_type=None):
+        """Recursively search for a Gradio component (research document implementation)"""
+        try:
+            # Check if this element matches our criteria
+            if elem_id and hasattr(element, 'elem_id') and element.elem_id == elem_id:
+                return element
+            
+            if label and hasattr(element, 'label') and element.label == label:
+                if component_type is None or isinstance(element, component_type):
+                    return element
+            
+            # Traverse children of layout blocks
+            if hasattr(element, 'children'):
+                for child in element.children:
+                    found = self.find_component_recursive(child, elem_id, label, component_type)
+                    if found:
+                        return found
+            
+            # Handle Gradio Tabs structure
+            if hasattr(element, '__class__') and 'Tab' in str(element.__class__):
+                if hasattr(element, 'children'):
+                    for child in element.children:
+                        found = self.find_component_recursive(child, elem_id, label, component_type)
+                        if found:
+                            return found
+            
+            return None
+            
+        except Exception as e:
+            # Don't log individual traversal errors - too noisy
+            return None
+
+    def submit_job_to_stablequeue(self, params):
+        """Submit a job to StableQueue (simplified for testing)"""
+        try:
+            # Get StableQueue settings
+            server_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
+            api_key = shared.opts.data.get("stablequeue_api_key", "")
+            api_secret = shared.opts.data.get("stablequeue_api_secret", "")
+            
+            if not all([server_url, api_key, api_secret]):
+                print(f"[StableQueue] ✗ StableQueue credentials not configured in settings")
+                return False
+            
+            return self.submit_to_stablequeue(params, server_url, api_key, api_secret)
+            
+        except Exception as e:
+            print(f"[StableQueue] Error submitting job: {e}")
+            return False
+
     def fetch_servers(self):
         """Fetch available server aliases from StableQueue"""
         try:
@@ -232,78 +402,10 @@ class StableQueueScript(scripts.Script):
             return False
 
     def process(self, p, queue_intent_state=None):
-        """Hook into the processing to capture parameters when queue request is pending"""
-        print(f"[StableQueue] process() called - queue intent: {self.queue_intent}")
-        print(f"[StableQueue] p.prompt = {getattr(p, 'prompt', 'N/A')}")
-        
-        # Check if we have a pending queue request
-        if self.queue_intent.get("pending", False):
-            print(f"[StableQueue] Processing queue request for server: {self.queue_intent['server_alias']}")
-            
-            try:
-                # Extract complete parameters from StableDiffusionProcessing object
-                params = self.extract_complete_parameters(p)
-                
-                # Set the target server alias
-                params["target_server_alias"] = self.queue_intent["server_alias"]
-                
-                # Get StableQueue settings
-                server_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
-                api_key = shared.opts.data.get("stablequeue_api_key", "")
-                api_secret = shared.opts.data.get("stablequeue_api_secret", "")
-                
-                if not all([server_url, api_key, api_secret]):
-                    print(f"[StableQueue] ✗ StableQueue credentials not configured in settings")
-                    self.queue_intent["pending"] = False
-                    return None
-                
-                if self.queue_intent["job_type"] == "bulk":
-                    # Submit multiple jobs
-                    bulk_quantity = shared.opts.data.get("stablequeue_bulk_quantity", 10)
-                    success_count = 0
-                    
-                    for i in range(bulk_quantity):
-                        # Vary the seed for each job
-                        bulk_params = params.copy()
-                        if bulk_params.get('seed', -1) != -1:
-                            bulk_params['seed'] = bulk_params['seed'] + i
-                        
-                        success = self.submit_to_stablequeue(bulk_params, server_url, api_key, api_secret)
-                        if success:
-                            success_count += 1
-                    
-                    print(f"[StableQueue] ✓ {success_count}/{bulk_quantity} bulk jobs queued successfully")
-                else:
-                    # Submit single job
-                    success = self.submit_to_stablequeue(params, server_url, api_key, api_secret)
-                    
-                    if success:
-                        print(f"[StableQueue] ✓ Job queued successfully")
-                    else:
-                        print(f"[StableQueue] ✗ Failed to queue job")
-                
-                # Reset queue intent
-                self.queue_intent = {"pending": False, "server_alias": "", "job_type": "single"}
-                
-                # Prevent local generation by returning empty processed result
-                return Processed(
-                    p,
-                    images_list=[],
-                    seed=p.seed,
-                    info="Job queued in StableQueue - local generation skipped",
-                    infotexts=["Job queued in StableQueue"]
-                )
-                
-            except Exception as e:
-                print(f"[StableQueue] Error processing queue request: {e}")
-                import traceback
-                print(f"[StableQueue] Full traceback: {traceback.format_exc()}")
-                
-                # Reset queue intent on error
-                self.queue_intent = {"pending": False, "server_alias": "", "job_type": "single"}
-                return None
-        
-        # If no queue intent, let normal processing continue
+        """Hook into the processing - simplified since we now use direct parameter capture"""
+        # We no longer use the process() hook for queue operations
+        # All queuing is now handled directly in the button click handlers
+        # This method is kept for compatibility but does nothing special
         return None
     
     def extract_complete_parameters(self, p):
