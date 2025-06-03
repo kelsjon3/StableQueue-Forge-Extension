@@ -76,11 +76,6 @@ class StableQueueScript(scripts.Script):
             # Status display
             status_display = gr.HTML("")
             
-            # Queue intent flags (hidden from user)
-            queue_intent = gr.State(False)
-            bulk_intent = gr.State(False)
-            selected_server = gr.State("")
-            
             # Event handlers
             def refresh_servers():
                 if self.fetch_servers():
@@ -180,35 +175,47 @@ class StableQueueScript(scripts.Script):
             
             # Wire up queue buttons to set intent and trigger generation
             def queue_and_generate(server_alias):
-                """Set queue intent and trigger generation in one action"""
-                # First set the intent
+                """Set queue intent and return values for the next generation"""
+                # First set the intent by queuing directly here
                 queue_intent_val, selected_server_val, status_msg = queue_job_now(server_alias)
                 
-                # Return the values that will be used by the next generation
-                return queue_intent_val, selected_server_val, status_msg
+                print(f"[StableQueue] Queue button returning: intent={queue_intent_val}, server={selected_server_val}")
+                print(f"[StableQueue] Status: {status_msg}")
+                
+                # Return as a simple success message instead of trying to trigger generation
+                if queue_intent_val:
+                    return status_msg
+                else:
+                    return status_msg
             
             def bulk_queue_and_generate(server_alias):
-                """Set bulk queue intent and trigger generation in one action"""
-                # First set the intent
+                """Set bulk queue intent and return values for the next generation"""
+                # First set the intent by queuing directly here  
                 bulk_intent_val, selected_server_val, status_msg = bulk_queue_job_now(server_alias)
                 
-                # Return the values that will be used by the next generation
-                return bulk_intent_val, selected_server_val, status_msg
+                print(f"[StableQueue] Bulk queue button returning: intent={bulk_intent_val}, server={selected_server_val}")
+                print(f"[StableQueue] Status: {status_msg}")
+                
+                # Return as a simple success message instead of trying to trigger generation
+                if bulk_intent_val:
+                    return status_msg
+                else:
+                    return status_msg
             
             queue_btn.click(
                 fn=queue_and_generate,
                 inputs=[server_dropdown],
-                outputs=[queue_intent, selected_server, status_display]
+                outputs=[status_display]
             )
             
             bulk_queue_btn.click(
                 fn=bulk_queue_and_generate,
                 inputs=[server_dropdown], 
-                outputs=[bulk_intent, selected_server, status_display]
+                outputs=[status_display]
             )
         
-        # Return the components in the order expected by script_args
-        return [queue_intent, bulk_intent, selected_server]
+        # Return empty list since we're not using script_args anymore
+        return []
     
     def fetch_servers(self):
         """Fetch available server aliases from StableQueue"""
@@ -236,75 +243,15 @@ class StableQueueScript(scripts.Script):
             print(f"[StableQueue] Error fetching servers: {str(e)}")
             return False
 
-    def process(self, p, queue_intent, bulk_intent, selected_server, *args):
-        """Hook into the processing to handle queue intents"""
+    def process(self, p, *args):
+        """Hook into the processing - currently not used since we queue directly in button handlers"""
         
-        print(f"[StableQueue] process() called with: queue_intent={queue_intent}, bulk_intent={bulk_intent}, selected_server={selected_server}")
+        print(f"[StableQueue] process() called - args: {args}")
         print(f"[StableQueue] p.prompt = {getattr(p, 'prompt', 'N/A')}")
         
-        # Check if we should queue instead of generate locally
-        if queue_intent:
-            print(f"[StableQueue] Queue intent detected - preventing local generation")
-            
-            # Create a simple placeholder result to satisfy Gradio's expectations
-            from modules.processing import Processed
-            from modules import images
-            import numpy as np
-            from PIL import Image
-            
-            # Create a simple placeholder image
-            placeholder_img = Image.new('RGB', (p.width, p.height), color='lightgray')
-            
-            # Add text to indicate job was queued
-            try:
-                from PIL import ImageDraw, ImageFont
-                draw = ImageDraw.Draw(placeholder_img)
-                text = f"Job queued to {selected_server}"
-                draw.text((10, 10), text, fill='black')
-            except:
-                pass  # If text drawing fails, just use plain gray image
-            
-            # Create processed result
-            processed = Processed(
-                p=p,
-                images_list=[placeholder_img],
-                seed=p.seed,
-                info="Job queued to StableQueue - check queue for status",
-                comments=""
-            )
-            
-            # Reset the queue intent to prevent repeated queuing
-            # Note: This would need to be handled differently in practice
-            # but for now we'll let the UI reset itself
-            
-            return processed
-        
-        elif bulk_intent:
-            print(f"[StableQueue] Bulk queue intent detected - preventing local generation")
-            
-            # Create placeholder result for bulk queue
-            from modules.processing import Processed
-            from PIL import Image
-            
-            placeholder_img = Image.new('RGB', (p.width, p.height), color='lightblue')
-            
-            try:
-                from PIL import ImageDraw
-                draw = ImageDraw.Draw(placeholder_img)
-                text = f"Bulk jobs queued to {selected_server}"
-                draw.text((10, 10), text, fill='black')
-            except:
-                pass
-            
-            processed = Processed(
-                p=p,
-                images_list=[placeholder_img],
-                seed=p.seed,
-                info="Bulk jobs queued to StableQueue - check queue for status",
-                comments=""
-            )
-            
-            return processed
+        # Since we're now queueing directly in the button handlers instead of 
+        # going through the generation pipeline, this method won't be used
+        # for queue operations. It will only handle normal generation.
         
         # If no queue intent, let normal processing continue
         return None
