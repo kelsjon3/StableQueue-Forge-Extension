@@ -177,25 +177,25 @@ class StableQueueScript(scripts.Script):
                     raise Exception("No generation inputs found")
                     
             except Exception as e:
-                print(f"[StableQueue] Could not connect to generation pipeline: {e}")
-                print(f"[StableQueue] Using simplified queue button setup")
+                print(f"[StableQueue] ✗ CRITICAL ERROR: Could not connect to generation pipeline")
+                print(f"[StableQueue] ✗ Error details: {e}")
+                import traceback
+                print(f"[StableQueue] ✗ Full traceback: {traceback.format_exc()}")
                 
-                # Fallback: simplified setup that just sets intent
-                def simple_queue(server_alias, job_type):
-                    if not server_alias or server_alias == "Configure API key in settings":
-                        return f"<span style='color:red'>✗ Please select a valid server</span>"
-                    
-                    self.queue_intent = {"pending": True, "server_alias": server_alias, "job_type": job_type}
-                    return f"<span style='color:blue'>⏳ Queue intent set for {server_alias}. Please click Generate to trigger.</span>"
+                # NO FALLBACK! Show clear error instead
+                def show_error(server_alias, job_type):
+                    error_msg = f"Extension failed to connect to generation pipeline: {str(e)}"
+                    print(f"[StableQueue] ✗ Button click failed: {error_msg}")
+                    return f"<span style='color:red'>✗ EXTENSION ERROR: {error_msg}</span>"
                 
                 queue_btn.click(
-                    fn=lambda server: simple_queue(server, "single"),
+                    fn=lambda server: show_error(server, "single"),
                     inputs=[server_dropdown],
                     outputs=[status_display]
                 )
                 
                 bulk_queue_btn.click(
-                    fn=lambda server: simple_queue(server, "bulk"),
+                    fn=lambda server: show_error(server, "bulk"),
                     inputs=[server_dropdown],
                     outputs=[status_display]
                 )
