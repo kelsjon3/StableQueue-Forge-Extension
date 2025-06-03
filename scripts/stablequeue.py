@@ -91,7 +91,11 @@ class StableQueueScript(scripts.Script):
                 if not server_alias or server_alias == "Configure API key in settings":
                     return f"<span style='color:red'>✗ Please select a valid server</span>"
                 
+                print(f"[StableQueue] === QUEUE GENERATION WRAPPER DEBUG ===")
                 print(f"[StableQueue] {job_type.title()} queue button clicked - setting intent for server: {server_alias}")
+                print(f"[StableQueue] Received {len(args)} arguments from UI components")
+                print(f"[StableQueue] First few args: {args[:5] if len(args) > 5 else args}")
+                print(f"[StableQueue] Is img2img: {is_img2img}")
                 
                 # Set queue intent that will be picked up by process() hook
                 self.queue_intent = {"pending": True, "server_alias": server_alias, "job_type": job_type}
@@ -100,18 +104,27 @@ class StableQueueScript(scripts.Script):
                     # Call the actual generation function which will trigger process() hook
                     from modules import txt2img, img2img
                     
+                    print(f"[StableQueue] About to call generation function...")
+                    
                     if is_img2img:
+                        print(f"[StableQueue] Calling img2img.img2img with {len(args)} arguments...")
                         # Call img2img generation - this will trigger our process() hook
                         result = img2img.img2img(*args)
                     else:
+                        print(f"[StableQueue] Calling txt2img.txt2img with {len(args)} arguments...")
                         # Call txt2img generation - this will trigger our process() hook
                         result = txt2img.txt2img(*args)
+                    
+                    print(f"[StableQueue] Generation function returned: {type(result)}")
+                    print(f"[StableQueue] Result: {result}")
                     
                     # If we get here, the process() hook should have intercepted and handled the queue
                     return f"<span style='color:green'>✓ Generation pipeline completed for {server_alias}</span>"
                     
                 except Exception as e:
                     print(f"[StableQueue] Error in generation wrapper: {e}")
+                    import traceback
+                    print(f"[StableQueue] Full traceback: {traceback.format_exc()}")
                     # Reset queue intent on error
                     self.queue_intent = {"pending": False, "server_alias": "", "job_type": "single"}
                     return f"<span style='color:red'>✗ Error: {str(e)}</span>"
@@ -294,17 +307,35 @@ class StableQueueScript(scripts.Script):
     def extract_complete_parameters(self, p):
         """Extract complete parameters from StableDiffusionProcessing object (research-backed approach)"""
         try:
+            print(f"[StableQueue] === PARAMETER EXTRACTION DEBUG ===")
+            print(f"[StableQueue] StableDiffusionProcessing object type: {type(p)}")
+            print(f"[StableQueue] Available attributes: {dir(p)}")
+            
+            # Debug the core parameters
+            prompt = getattr(p, 'prompt', '')
+            negative_prompt = getattr(p, 'negative_prompt', '')
+            steps = getattr(p, 'steps', 20)
+            width = getattr(p, 'width', 512)
+            height = getattr(p, 'height', 512)
+            
+            print(f"[StableQueue] Raw parameter extraction:")
+            print(f"[StableQueue] - prompt: '{prompt}' (type: {type(prompt)})")
+            print(f"[StableQueue] - negative_prompt: '{negative_prompt}' (type: {type(negative_prompt)})")
+            print(f"[StableQueue] - steps: {steps} (type: {type(steps)})")
+            print(f"[StableQueue] - width: {width} (type: {type(width)})")
+            print(f"[StableQueue] - height: {height} (type: {type(height)})")
+            
             print(f"[StableQueue] Extracting parameters from StableDiffusionProcessing object")
             
             # Extract core parameters from p object (as per research document)
             params = {
-                "prompt": getattr(p, 'prompt', ''),
-                "negative_prompt": getattr(p, 'negative_prompt', ''),
-                "steps": getattr(p, 'steps', 20),
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "steps": steps,
                 "sampler_name": getattr(p, 'sampler_name', 'Euler'),
                 "cfg_scale": getattr(p, 'cfg_scale', 7.0),
-                "width": getattr(p, 'width', 512),
-                "height": getattr(p, 'height', 512),
+                "width": width,
+                "height": height,
                 "seed": getattr(p, 'seed', -1),
                 "subseed": getattr(p, 'subseed', -1),
                 "subseed_strength": getattr(p, 'subseed_strength', 0),
@@ -355,9 +386,14 @@ class StableQueueScript(scripts.Script):
             
             params["alwayson_scripts"] = alwayson_scripts
             
+            print(f"[StableQueue] === FINAL EXTRACTED PARAMETERS ===")
             print(f"[StableQueue] Extracted {len(params)} parameters from StableDiffusionProcessing object")
-            print(f"[StableQueue] Prompt: {params['prompt'][:50]}...")
-            print(f"[StableQueue] Model: {params.get('checkpoint_name', 'unknown')}")
+            print(f"[StableQueue] Final prompt: '{params['prompt']}'")
+            print(f"[StableQueue] Final negative: '{params['negative_prompt']}'")
+            print(f"[StableQueue] Final model: '{params.get('checkpoint_name', 'unknown')}'")
+            print(f"[StableQueue] Final dimensions: {params['width']}x{params['height']}")
+            print(f"[StableQueue] Final steps: {params['steps']}")
+            print(f"[StableQueue] === END PARAMETER EXTRACTION ===")
             
             return params
             
