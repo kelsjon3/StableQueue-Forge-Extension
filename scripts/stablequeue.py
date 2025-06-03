@@ -110,6 +110,9 @@ class StableQueueScript(scripts.Script):
                     tab_id = 'img2img' if is_img2img else 'txt2img'
                     params = self.extract_current_ui_parameters(tab_id)
                     
+                    # Set the target server alias
+                    params["target_server_alias"] = server_alias
+                    
                     # Submit to StableQueue
                     success = self.submit_to_stablequeue(params, server_url, api_key, api_secret)
                     
@@ -141,6 +144,9 @@ class StableQueueScript(scripts.Script):
                     # Extract current UI parameters
                     tab_id = 'img2img' if is_img2img else 'txt2img'
                     params = self.extract_current_ui_parameters(tab_id)
+                    
+                    # Set the target server alias
+                    params["target_server_alias"] = server_alias
                     
                     # Get bulk quantity from settings
                     bulk_quantity = shared.opts.data.get("stablequeue_bulk_quantity", 10)
@@ -415,29 +421,49 @@ class StableQueueScript(scripts.Script):
             return {"raw_args": args}
 
     def submit_to_stablequeue(self, params, server_url, api_key, api_secret):
-        """Submit job to StableQueue server"""
+        """Submit job to StableQueue server using v2 API"""
         try:
+            # Format payload according to StableQueue v2 API specification
             payload = {
-                "payload": params,
-                "api_key": api_key,
-                "api_secret": api_secret
+                "app_type": "forge",
+                "target_server_alias": params.get("target_server_alias", "default"),
+                "generation_params": {
+                    "positive_prompt": params.get("prompt", ""),
+                    "negative_prompt": params.get("negative_prompt", ""),
+                    "width": params.get("width", 512),
+                    "height": params.get("height", 512),
+                    "steps": params.get("steps", 20),
+                    "cfg_scale": params.get("cfg_scale", 7.0),
+                    "sampler_name": params.get("sampler_name", "Euler"),
+                    "seed": params.get("seed", -1),
+                    "batch_size": params.get("batch_size", 1),
+                    "n_iter": params.get("n_iter", 1),
+                    "restore_faces": params.get("restore_faces", False),
+                    "checkpoint_name": params.get("checkpoint_name", ""),
+                    "enable_hr": params.get("enable_hr", False),
+                    "hr_scale": params.get("hr_scale", 2.0),
+                    "hr_upscaler": params.get("hr_upscaler", "Latent"),
+                    "denoising_strength": params.get("denoising_strength", 0.7),
+                },
+                "source_info": "forge_extension_v1.0.0"
             }
             
             headers = {
                 "Content-Type": "application/json",
-                "X-API-Key": api_key,
-                "X-API-Secret": api_secret
+                "Authorization": f"Bearer {api_key}"
             }
             
-            url = f"{server_url.rstrip('/')}/api/v2/generation/enqueue"
+            url = f"{server_url.rstrip('/')}/api/v2/generate"
             
             print(f"[StableQueue] Submitting to {url}")
+            print(f"[StableQueue] Target server: {payload['target_server_alias']}")
             
             response = requests.post(url, json=payload, headers=headers, timeout=10)
             
-            if response.status_code == 200:
+            if response.status_code == 202:  # StableQueue v2 returns 202 Accepted
                 result = response.json()
-                print(f"[StableQueue] ✓ Job queued with ID: {result.get('job_id', 'unknown')}")
+                job_id = result.get('mobilesd_job_id', 'unknown')
+                print(f"[StableQueue] ✓ Job queued with ID: {job_id}")
                 return True
             else:
                 print(f"[StableQueue] ✗ Failed to queue: {response.status_code} - {response.text}")
