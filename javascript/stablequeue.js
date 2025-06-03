@@ -48,7 +48,7 @@
         queueBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            
+
             if (queueBtn.disabled) return;
             queueBtn.disabled = true;
             
@@ -74,7 +74,7 @@
         });
     }
 
-        // Trigger queue by setting flag and clicking Generate (AlwaysOnScript intercepts)
+    // TODO: Phase 2 - Replace with direct Gradio integration
     async function queueJob(tabId, jobType) {
         try {
             // Get selected server
@@ -84,44 +84,14 @@
                 return;
             }
 
-            console.log(`[${EXTENSION_NAME}] Setting queue flag for ${jobType} on server: ${serverAlias}`);
+            console.log(`[${EXTENSION_NAME}] TODO: Implement direct Gradio queue for ${jobType} on server: ${serverAlias}`);
             
-            // Set the pending queue request in Python backend
-            const response = await fetch('/stablequeue/trigger_queue', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tab_id: tabId,
-                    job_type: jobType,
-                    server_alias: serverAlias
-                })
-            });
-            
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
-            }
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                // Queue flag is set - now trigger the actual generation flow
-                // This will create the real StableDiffusionProcessing object that AlwaysOnScript can intercept
-                console.log(`[${EXTENSION_NAME}] Queue flag set, triggering generation for parameter capture`);
-                
-                const generateBtn = document.querySelector(`#${tabId}_generate`);
-                if (generateBtn) {
-                    generateBtn.click(); // This triggers normal parameter collection + AlwaysOnScript interception
-                } else {
-                    showNotification('Generate button not found - cannot capture parameters', 'error');
-                }
-            } else {
-                showNotification(`Error: ${data.message || 'Unknown error'}`, 'error');
-            }
+            // TODO: Phase 2 - This should use direct Gradio integration instead of artificial triggering
+            showNotification('Queue functionality temporarily disabled during Phase 1 cleanup', 'info');
             
         } catch (error) {
-            console.error(`[${EXTENSION_NAME}] Error triggering queue:`, error);
-            showNotification(`Connection error: ${error.message}`, 'error');
+            console.error(`[${EXTENSION_NAME}] Error in queue function:`, error);
+            showNotification(`Error: ${error.message}`, 'error');
         }
     }
 
@@ -233,7 +203,7 @@
         
         notificationArea.appendChild(notification);
         
-        setTimeout(() => {
+                            setTimeout(() => {
             if (notification.parentNode) {
                 notification.parentNode.removeChild(notification);
             }
@@ -268,7 +238,7 @@
             .then(data => {
                 if (data.success) {
                     params.notification = { text: data.message, type: 'success' };
-                } else {
+            } else {
                     params.notification = { text: `Error: ${data.message || 'Unknown error'}`, type: 'error' };
                 }
             })

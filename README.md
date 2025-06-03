@@ -83,10 +83,8 @@ Add `--api` to your Forge launch arguments in `webui-user.sh` or `webui-user.bat
 ```bash
 # In webui-user.sh (Linux/Mac)
 export COMMANDLINE_ARGS="--api"
-```
 
-```batch
-REM In webui-user.bat (Windows)
+# Or in webui-user.bat (Windows)
 set COMMANDLINE_ARGS=--api
 ```
 

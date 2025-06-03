@@ -81,69 +81,18 @@ class StableQueueScript(scripts.Script):
         """
         This hook is called with the complete StableDiffusionProcessing object
         containing all parameters from UI and extensions.
-        """
-        global pending_queue_request
         
+        TODO: Implement logic to determine if this was triggered by a queue button
+        based on the new direct Gradio integration approach.
+        """
         try:
-            # Check if there's a pending manual queue request
-            manual_queue = pending_queue_request.get("enabled", False)
-            
-            if not manual_queue:
-                # No manual queue request - continue with normal processing
-                return
-            
-            # Get StableQueue settings
-            server_url = shared.opts.data.get("stablequeue_url", DEFAULT_SERVER_URL)
-            api_key = shared.opts.data.get("stablequeue_api_key", "")
-            api_secret = shared.opts.data.get("stablequeue_api_secret", "")
-            
-            if not all([server_url, api_key, api_secret]):
-                print(f"[StableQueue] ✗ Credentials not configured, allowing local generation")
-                pending_queue_request["enabled"] = False
-                return
-                
-            print(f"[StableQueue] Intercepting generation with {len(p.script_args)} script args")
-            
-            # Extract complete parameters
-            params = self.extract_complete_parameters(p)
-            
-            # Use server alias from pending request
-            target_server = pending_queue_request.get("server_alias", "")
-            job_type = pending_queue_request.get("job_type", "single")
-            
-            # Submit to StableQueue
-            success = self.submit_to_stablequeue(params, server_url, api_key, api_secret)
-            
-            # Clear pending request after processing
-            pending_queue_request["enabled"] = False
-            pending_queue_request["server_alias"] = ""
-            pending_queue_request["job_type"] = "single"
-            
-            if success:
-                print(f"[StableQueue] ✓ Manual job queued successfully, preventing local generation")
-                
-                # Prevent local generation by returning empty result
-                return Processed(
-                    p,
-                    images_list=[],
-                    seed=p.seed,
-                    info="Job queued in StableQueue - local generation skipped",
-                    subseed=p.subseed,
-                    all_prompts=[p.prompt],
-                    all_seeds=[p.seed],
-                    all_subseeds=[p.subseed],
-                    infotexts=["Job queued in StableQueue"]
-                )
-            else:
-                print(f"[StableQueue] ✗ Failed to queue job, allowing local generation")
+            # TODO: Phase 2 - Implement queue intent detection
+            # For now, continue with normal processing (no queuing)
+            return None
                 
         except Exception as e:
             print(f"[StableQueue] Error in process hook: {e}")
-            # Clear pending request on error
-            pending_queue_request["enabled"] = False
-            # Continue with local generation on error
-            
-        return None  # Continue with normal processing
+            return None  # Continue with normal processing
 
     def extract_complete_parameters(self, p: StableDiffusionProcessing):
         """Extract all parameters from the StableDiffusionProcessing object"""
@@ -379,12 +328,13 @@ class StableQueueScript(scripts.Script):
             print(f"[StableQueue] Error in queue_job_from_javascript: {e}")
             return {"success": False, "message": f"Error: {str(e)}"}
 
-# Global state for manual queue triggers
-pending_queue_request = {
-    "enabled": False,
-    "server_alias": "",
-    "job_type": "single"
-}
+# TODO: Phase 2 - Remove this global state approach entirely
+# Global state for manual queue triggers (TO BE REMOVED)
+# pending_queue_request = {
+#     "enabled": False,
+#     "server_alias": "",
+#     "job_type": "single"
+# }
 
 # Create global instance
 stablequeue_instance = StableQueueScript()
@@ -622,39 +572,9 @@ def setup_javascript_api(demo=None, app=None):
             print(f"[StableQueue] FastAPI not available")
             return
         
-        # Register the endpoints
-        @app.post("/stablequeue/trigger_queue")
-        async def trigger_queue_api(request: Request):
-            try:
-                print(f"[StableQueue] /stablequeue/trigger_queue endpoint called")
-                
-                # Get request data
-                data = await request.json()
-                tab_id = data.get('tab_id', '')
-                job_type = data.get('job_type', 'single')
-                server_alias = data.get('server_alias', '')
-                
-                print(f"[StableQueue] Setting queue flag: tab={tab_id}, type={job_type}, server={server_alias}")
-                
-                # Set the pending queue request - AlwaysOnScript will intercept next generation
-                global pending_queue_request
-                pending_queue_request["enabled"] = True
-                pending_queue_request["server_alias"] = server_alias
-                pending_queue_request["job_type"] = job_type
-                
-                print(f"[StableQueue] Queue flag set - ready to intercept StableDiffusionProcessing object")
-                
-                return JSONResponse(content={
-                    "success": True,
-                    "message": f"Queue flag set for {job_type} job on {server_alias}"
-                })
-                
-            except Exception as e:
-                print(f"[StableQueue] Error in trigger_queue_api: {e}")
-                return JSONResponse(
-                    content={"success": False, "message": f"API Error: {str(e)}"}, 
-                    status_code=500
-                )
+        # TODO: Phase 1 - REMOVED /stablequeue/trigger_queue endpoint
+        # This endpoint was part of the complex flag coordination system
+        # that we're replacing with direct Gradio integration
 
         @app.post("/stablequeue/context_menu_queue")
         async def context_menu_queue_api(request: Request):
