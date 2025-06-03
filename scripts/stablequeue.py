@@ -236,14 +236,78 @@ class StableQueueScript(scripts.Script):
             print(f"[StableQueue] Error fetching servers: {str(e)}")
             return False
 
-    # NOTE: process() method removed in Phase 3 since queue buttons work independently
-    # and don't need to intercept the generation flow
-
-    # NOTE: extract_complete_parameters() method removed in Phase 3 since it was only
-    # used by the process() hook, which has been removed
-
-    # NOTE: parse_controlnet_args() method removed in Phase 3 since it was only
-    # used by extract_complete_parameters(), which has been removed
+    def process(self, p, queue_intent, bulk_intent, selected_server, *args):
+        """Hook into the processing to handle queue intents"""
+        
+        print(f"[StableQueue] process() called with: queue_intent={queue_intent}, bulk_intent={bulk_intent}, selected_server={selected_server}")
+        print(f"[StableQueue] p.prompt = {getattr(p, 'prompt', 'N/A')}")
+        
+        # Check if we should queue instead of generate locally
+        if queue_intent:
+            print(f"[StableQueue] Queue intent detected - preventing local generation")
+            
+            # Create a simple placeholder result to satisfy Gradio's expectations
+            from modules.processing import Processed
+            from modules import images
+            import numpy as np
+            from PIL import Image
+            
+            # Create a simple placeholder image
+            placeholder_img = Image.new('RGB', (p.width, p.height), color='lightgray')
+            
+            # Add text to indicate job was queued
+            try:
+                from PIL import ImageDraw, ImageFont
+                draw = ImageDraw.Draw(placeholder_img)
+                text = f"Job queued to {selected_server}"
+                draw.text((10, 10), text, fill='black')
+            except:
+                pass  # If text drawing fails, just use plain gray image
+            
+            # Create processed result
+            processed = Processed(
+                p=p,
+                images_list=[placeholder_img],
+                seed=p.seed,
+                info="Job queued to StableQueue - check queue for status",
+                comments=""
+            )
+            
+            # Reset the queue intent to prevent repeated queuing
+            # Note: This would need to be handled differently in practice
+            # but for now we'll let the UI reset itself
+            
+            return processed
+        
+        elif bulk_intent:
+            print(f"[StableQueue] Bulk queue intent detected - preventing local generation")
+            
+            # Create placeholder result for bulk queue
+            from modules.processing import Processed
+            from PIL import Image
+            
+            placeholder_img = Image.new('RGB', (p.width, p.height), color='lightblue')
+            
+            try:
+                from PIL import ImageDraw
+                draw = ImageDraw.Draw(placeholder_img)
+                text = f"Bulk jobs queued to {selected_server}"
+                draw.text((10, 10), text, fill='black')
+            except:
+                pass
+            
+            processed = Processed(
+                p=p,
+                images_list=[placeholder_img],
+                seed=p.seed,
+                info="Bulk jobs queued to StableQueue - check queue for status",
+                comments=""
+            )
+            
+            return processed
+        
+        # If no queue intent, let normal processing continue
+        return None
 
     def submit_to_stablequeue(self, params, server_url, api_key, api_secret):
         """Submit job to StableQueue server using v2 API"""
@@ -311,7 +375,7 @@ class StableQueueScript(scripts.Script):
             # This is a simplified approach - in a real implementation, 
             # we would need to access the actual Gradio component values
             params = {
-                "prompt": "A beautiful landscape",  # Default prompt
+                "prompt": "Simple test prompt",  # Changed from problematic string
                 "negative_prompt": "",
                 "steps": 20,
                 "sampler_name": "Euler",
