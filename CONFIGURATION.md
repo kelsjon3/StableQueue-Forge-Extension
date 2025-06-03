@@ -34,14 +34,13 @@ Enter the following settings in the StableQueue Integration section:
 
 ## Using the Extension
 
-### Method 1: Using the StableQueue Tab
+### Method 1: Using the StableQueue Accordion
 
 1. Go to the **txt2img** or **img2img** tab
 2. Set up your generation parameters as usual
 3. Look for the **StableQueue** accordion section
 4. Select a target server from the dropdown
-5. Set priority (1-10, where 1 is highest priority)
-6. Click **"Queue in StableQueue"** for single jobs or **"Queue Bulk Job"** for multiple jobs
+5. Click **"Queue in StableQueue"** for single jobs or **"Bulk Queue"** for multiple jobs
 
 ### Method 2: Using Context Menu (if enabled)
 
