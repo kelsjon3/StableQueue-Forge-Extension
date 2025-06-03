@@ -450,7 +450,8 @@ class StableQueueScript(scripts.Script):
             
             headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
+                "X-API-Key": api_key,
+                "X-API-Secret": api_secret
             }
             
             url = f"{server_url.rstrip('/')}/api/v2/generate"
