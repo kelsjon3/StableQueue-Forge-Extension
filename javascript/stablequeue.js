@@ -1,4 +1,4 @@
-// StableQueue Forge Extension - JavaScript UI Only
+// StableQueue Forge Extension - Settings UI Only
 // Python AlwaysOnScript handles all parameter capture and processing
 
 (function() {
@@ -6,349 +6,217 @@
     
     const EXTENSION_NAME = 'StableQueue';
     
-    console.log(`[${EXTENSION_NAME}] JavaScript UI loading...`);
+    console.log(`[${EXTENSION_NAME}] JavaScript UI loading - settings management only`);
 
-    // Add queue buttons to txt2img and img2img tabs
-    function addQueueButtons() {
-        setTimeout(() => {
-            addButtonToTab('txt2img');
-            addButtonToTab('img2img');
-            console.log(`[${EXTENSION_NAME}] Queue buttons added`);
-        }, 1000);
-    }
-
-    function addButtonToTab(tabId) {
-        const generateBtn = document.querySelector(`#${tabId}_generate`);
-        if (!generateBtn) {
-            console.log(`[${EXTENSION_NAME}] Generate button not found for ${tabId}`);
+    // Add StableQueue settings tab to the interface
+    function addStableQueueTab() {
+        // Find the main tabs container
+        const tabsContainer = document.querySelector('.tab-nav');
+        if (!tabsContainer) {
+            console.log(`[${EXTENSION_NAME}] Tab container not found, retrying...`);
+            setTimeout(addStableQueueTab, 1000);
             return;
         }
         
-        // Create Queue button
-        const queueBtn = document.createElement('button');
-        queueBtn.id = `${tabId}_queue_stablequeue`;
-        queueBtn.className = generateBtn.className;
-        queueBtn.innerHTML = 'Queue in StableQueue';
-        queueBtn.style.backgroundColor = '#3498db';
-        queueBtn.style.marginLeft = '5px';
+        // Check if tab already exists
+        if (document.querySelector('.stablequeue-tab')) {
+            console.log(`[${EXTENSION_NAME}] Settings tab already exists`);
+            return;
+        }
         
-        // Create Bulk Queue button
-        const bulkQueueBtn = document.createElement('button');
-        bulkQueueBtn.id = `${tabId}_bulk_queue_stablequeue`;
-        bulkQueueBtn.className = generateBtn.className;
-        bulkQueueBtn.innerHTML = 'Bulk Queue';
-        bulkQueueBtn.style.backgroundColor = '#2980b9';
-        bulkQueueBtn.style.marginLeft = '5px';
-        
-        // Insert buttons after Generate
-        generateBtn.parentNode.insertBefore(queueBtn, generateBtn.nextSibling);
-        generateBtn.parentNode.insertBefore(bulkQueueBtn, queueBtn.nextSibling);
-        
-        // Add click event listeners - simple API calls to Python backend
-        queueBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            if (queueBtn.disabled) return;
-            queueBtn.disabled = true;
-            
-            try {
-                await queueJob(tabId, 'single');
-            } finally {
-                queueBtn.disabled = false;
-            }
-        });
-        
-        bulkQueueBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            if (bulkQueueBtn.disabled) return;
-            bulkQueueBtn.disabled = true;
-            
-            try {
-                await queueJob(tabId, 'bulk');
-            } finally {
-                bulkQueueBtn.disabled = false;
-            }
-        });
+        // Create StableQueue settings tab button
+        const tabButton = document.createElement('button');
+        tabButton.className = 'svelte-1ks3i5a stablequeue-tab';
+        tabButton.textContent = 'StableQueue Settings';
+        tabButton.onclick = () => showStableQueueSettings();
+
+        // Add tab to container
+        tabsContainer.appendChild(tabButton);
+        console.log(`[${EXTENSION_NAME}] Settings tab added successfully`);
     }
 
-        // Trigger queue by setting flag and clicking Generate (AlwaysOnScript intercepts)
-    async function queueJob(tabId, jobType) {
-        try {
-            // Get selected server
-            const serverAlias = getSelectedServer();
-            if (!serverAlias) {
-                showNotification('No server selected in StableQueue tab. Please select a server first.', 'error');
-                return;
-            }
+    // Show StableQueue settings modal
+    function showStableQueueSettings() {
+        // Create modal overlay
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); z-index: 10000; display: flex;
+            justify-content: center; align-items: center;
+        `;
 
-            console.log(`[${EXTENSION_NAME}] Setting queue flag for ${jobType} on server: ${serverAlias}`);
+        // Create modal content
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            background: white; padding: 20px; border-radius: 8px;
+            max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;
+            color: black;
+        `;
+
+        modal.innerHTML = `
+            <h3>StableQueue Settings</h3>
+            <p style="color: #666; margin-bottom: 20px;">
+                Configure connection to your StableQueue backend. Parameter capture is handled automatically by the Python extension.
+            </p>
             
-            // Set the pending queue request in Python backend
-            const response = await fetch('/stablequeue/trigger_queue', {
+            <div style="margin: 15px 0;">
+                <label><strong>Server URL:</strong></label><br>
+                <input type="text" id="sq-server-url" style="width: 100%; padding: 8px; margin-top: 5px;" 
+                       value="${localStorage.getItem('stablequeue_server_url') || 'http://192.168.73.124:8083'}" 
+                       placeholder="http://your-server:8083">
+            </div>
+            
+            <div style="margin: 15px 0;">
+                <label><strong>API Key:</strong></label><br>
+                <input type="text" id="sq-api-key" style="width: 100%; padding: 8px; margin-top: 5px;" 
+                       value="${localStorage.getItem('stablequeue_api_key') || ''}" 
+                       placeholder="Your API key">
+            </div>
+            
+            <div style="margin: 15px 0;">
+                <label><strong>API Secret:</strong></label><br>
+                <input type="password" id="sq-api-secret" style="width: 100%; padding: 8px; margin-top: 5px;" 
+                       value="${localStorage.getItem('stablequeue_api_secret') || ''}" 
+                       placeholder="Your API secret">
+            </div>
+            
+            <div style="margin: 20px 0; padding: 15px; background-color: #f0f8ff; border-radius: 4px; border-left: 4px solid #007acc;">
+                <h4 style="margin-top: 0;">How StableQueue Works:</h4>
+                <ul style="margin: 10px 0; padding-left: 20px;">
+                    <li><strong>Automatic Capture:</strong> Python extension intercepts ALL generation attempts</li>
+                    <li><strong>User Choice:</strong> Configure action in txt2img/img2img tabs: Queue Only, Queue + Generate, or Generate Only</li>
+                    <li><strong>Complete Parameters:</strong> Captures core settings + all extensions (ControlNet, etc.)</li>
+                    <li><strong>Remote Browser Safe:</strong> No file system dependencies</li>
+                </ul>
+            </div>
+            
+            <div style="margin: 15px 0;">
+                <button id="sq-test-connection" style="padding: 10px 20px; margin-right: 10px; background: #007acc; color: white; border: none; border-radius: 4px; cursor: pointer;">Test Connection</button>
+                <button id="sq-save-settings" style="padding: 10px 20px; margin-right: 10px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Save Settings</button>
+                <button id="sq-close-modal" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>
+            </div>
+            
+            <div id="sq-status" style="margin-top: 15px; padding: 10px; border-radius: 4px; display: none;"></div>
+        `;
+
+        // Event handlers
+        modal.querySelector('#sq-test-connection').onclick = testConnection;
+        modal.querySelector('#sq-save-settings').onclick = saveSettings;
+        modal.querySelector('#sq-close-modal').onclick = () => document.body.removeChild(overlay);
+        
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+    }
+
+    // Test connection to StableQueue server
+    async function testConnection() {
+        const status = document.getElementById('sq-status');
+        const serverUrl = document.getElementById('sq-server-url').value.trim();
+        const apiKey = document.getElementById('sq-api-key').value.trim();
+        const apiSecret = document.getElementById('sq-api-secret').value.trim();
+
+        if (!serverUrl || !apiKey || !apiSecret) {
+            showStatus('Please fill in all fields', 'error');
+            return;
+        }
+
+        try {
+            showStatus('Testing connection...', 'info');
+            
+            const response = await fetch(`${serverUrl}/api/v1/queue/servers`, {
+                method: 'GET',
+                headers: {
+                    'X-API-Key': apiKey,
+                    'X-API-Secret': apiSecret,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const serverCount = data.servers?.length || 0;
+                showStatus(`✅ Connection successful! Found ${serverCount} servers: ${data.servers?.map(s => s.alias).join(', ') || 'none'}`, 'success');
+            } else {
+                const errorText = await response.text();
+                showStatus(`❌ Connection failed: ${response.status} ${response.statusText}\n${errorText}`, 'error');
+            }
+        } catch (error) {
+            showStatus(`❌ Connection error: ${error.message}`, 'error');
+        }
+    }
+
+    // Save settings to localStorage and Forge settings
+    async function saveSettings() {
+        const serverUrl = document.getElementById('sq-server-url').value.trim();
+        const apiKey = document.getElementById('sq-api-key').value.trim();
+        const apiSecret = document.getElementById('sq-api-secret').value.trim();
+
+        // Save to localStorage for immediate JavaScript access
+        localStorage.setItem('stablequeue_server_url', serverUrl);
+        localStorage.setItem('stablequeue_api_key', apiKey);
+        localStorage.setItem('stablequeue_api_secret', apiSecret);
+
+        // Also try to save to Forge settings
+        try {
+            // This might work if there's a settings API available
+            const settingsPayload = {
+                stablequeue_url: serverUrl,
+                stablequeue_api_key: apiKey,
+                stablequeue_api_secret: apiSecret
+            };
+            
+            // Try to call Forge settings API if available
+            fetch('/api/v1/options', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tab_id: tabId,
-                    job_type: jobType,
-                    server_alias: serverAlias
-                })
-            });
-            
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`HTTP ${response.status}: ${text.slice(0,120)}`);
-            }
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                // Queue flag is set - now trigger the actual generation flow
-                // This will create the real StableDiffusionProcessing object that AlwaysOnScript can intercept
-                console.log(`[${EXTENSION_NAME}] Queue flag set, triggering generation for parameter capture`);
-                
-                const generateBtn = document.querySelector(`#${tabId}_generate`);
-                if (generateBtn) {
-                    generateBtn.click(); // This triggers normal parameter collection + AlwaysOnScript interception
+                body: JSON.stringify(settingsPayload)
+            }).then(response => {
+                if (response.ok) {
+                    console.log('[StableQueue] Settings saved to Forge backend');
                 } else {
-                    showNotification('Generate button not found - cannot capture parameters', 'error');
+                    console.log('[StableQueue] Could not save to Forge backend (use Settings tab)');
                 }
-            } else {
-                showNotification(`Error: ${data.message || 'Unknown error'}`, 'error');
-            }
+            }).catch(e => {
+                console.log('[StableQueue] Settings API not available (use Settings tab)');
+            });
             
         } catch (error) {
-            console.error(`[${EXTENSION_NAME}] Error triggering queue:`, error);
-            showNotification(`Connection error: ${error.message}`, 'error');
+            console.log('[StableQueue] Could not save to backend, use Settings tab');
         }
+
+        showStatus('✅ Settings saved to browser storage.\nFor Python access, also configure in Settings → StableQueue Integration', 'success');
     }
 
-    function getSelectedServer() {
-        const serverDropdown = document.querySelector('#stablequeue_server_dropdown');
-        
-        if (!serverDropdown) {
-            console.error(`[${EXTENSION_NAME}] Server dropdown (#stablequeue_server_dropdown) not found.`);
-            return null;
-        }
-
-        // --- DETAILED LOGGING FOR DROPDOWN STATE ---
-        console.log(`[${EXTENSION_NAME}] --- Debugging Dropdown State ---`);
-        console.log(`[${EXTENSION_NAME}] Dropdown Element:`, serverDropdown);
-        console.log(`[${EXTENSION_NAME}] Element tagName: ${serverDropdown.tagName}`);
-        console.log(`[${EXTENSION_NAME}] Element className: ${serverDropdown.className}`);
-        console.log(`[${EXTENSION_NAME}] Element type: ${serverDropdown.type || 'undefined'}`);
-        
-        // Try to get the value using multiple approaches
-        let serverAlias = null;
-        
-        // Check if it's a standard select element
-        if (serverDropdown.tagName === 'SELECT') {
-            console.log(`[${EXTENSION_NAME}] Standard SELECT element found`);
-            serverAlias = serverDropdown.value;
-            console.log(`[${EXTENSION_NAME}] Dropdown Value: "${serverAlias}"`);
-            console.log(`[${EXTENSION_NAME}] Selected Index: ${serverDropdown.selectedIndex}`);
-            
-            if (serverDropdown.options && serverDropdown.options.length > 0) {
-                console.log(`[${EXTENSION_NAME}] Options count: ${serverDropdown.options.length}`);
-                if (serverDropdown.selectedIndex >= 0) {
-                    const selectedOpt = serverDropdown.options[serverDropdown.selectedIndex];
-                    console.log(`[${EXTENSION_NAME}] Selected Option: "${selectedOpt.text}" (value: "${selectedOpt.value}")`);
-                }
-            }
-        } else {
-            console.log(`[${EXTENSION_NAME}] Non-standard element found (likely Gradio component)`);
-            console.log(`[${EXTENSION_NAME}] Element innerHTML:`, serverDropdown.innerHTML.substring(0, 200) + '...');
-            
-            // Try to find nested select element within the Gradio component
-            const nestedSelect = serverDropdown.querySelector('select');
-            if (nestedSelect) {
-                console.log(`[${EXTENSION_NAME}] Found nested SELECT element`);
-                serverAlias = nestedSelect.value;
-                console.log(`[${EXTENSION_NAME}] Nested select value: "${serverAlias}"`);
-                console.log(`[${EXTENSION_NAME}] Nested select options count: ${nestedSelect.options ? nestedSelect.options.length : 'undefined'}`);
-            } else {
-                console.log(`[${EXTENSION_NAME}] No nested SELECT element found`);
-                
-                // Try to find input element (some Gradio dropdowns use input)
-                const gradioInput = serverDropdown.querySelector('input');
-                if (gradioInput) {
-                    serverAlias = gradioInput.value;
-                    console.log(`[${EXTENSION_NAME}] Found input element with value: "${serverAlias}"`);
-                }
-                
-                const gradioOptions = serverDropdown.querySelectorAll('[role="option"]');
-                if (gradioOptions.length > 0) {
-                    console.log(`[${EXTENSION_NAME}] Found ${gradioOptions.length} role="option" elements`);
-                }
-            }
-        }
-        console.log(`[${EXTENSION_NAME}] --- End Debugging Dropdown State ---`);
-
-        console.log(`[${EXTENSION_NAME}] Final serverAlias extracted: "${serverAlias}"`);
-
-        // Validate the extracted server alias
-        if (!serverAlias || serverAlias.trim() === "") {
-            console.error(`[${EXTENSION_NAME}] Error: No server selected or dropdown value is empty. Final serverAlias: "${serverAlias}"`);
-            return null;
-        }
-        
-        // Check for the default "Configure" text
-        if (serverAlias === "Configure API key in settings") {
-            console.error(`[${EXTENSION_NAME}] Error: "Configure API key in settings" was the effective value.`);
-            return null;
-        }
-        
-        return serverAlias;
+    // Show status message
+    function showStatus(message, type) {
+        const status = document.getElementById('sq-status');
+        status.style.display = 'block';
+        status.textContent = message;
+        status.style.whiteSpace = 'pre-line'; // Allow line breaks
+        status.style.backgroundColor = type === 'success' ? '#d4edda' : 
+                                    type === 'error' ? '#f8d7da' : '#d1ecf1';
+        status.style.color = type === 'success' ? '#155724' : 
+                           type === 'error' ? '#721c24' : '#0c5460';
+        status.style.border = `1px solid ${type === 'success' ? '#c3e6cb' : 
+                                        type === 'error' ? '#f5c6cb' : '#bee5eb'}`;
     }
 
-    // Simple notification system
-    function showNotification(message, type) {
-        let notificationArea = document.querySelector('#stablequeue-notifications');
-        if (!notificationArea) {
-            notificationArea = document.createElement('div');
-            notificationArea.id = 'stablequeue-notifications';
-            notificationArea.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                z-index: 10000;
-                max-width: 400px;
-            `;
-            document.body.appendChild(notificationArea);
-        }
+    // Initialize extension when DOM is ready
+    function init() {
+        console.log(`[${EXTENSION_NAME}] Initializing settings UI...`);
         
-        const notification = document.createElement('div');
-        notification.style.cssText = `
-            padding: 12px 16px;
-            margin-bottom: 8px;
-            border-radius: 4px;
-            color: white;
-            font-weight: 500;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-            background-color: ${type === 'success' ? '#28a745' : '#dc3545'};
-        `;
-        notification.textContent = message;
+        // Add settings tab to interface
+        addStableQueueTab();
         
-        notificationArea.appendChild(notification);
-        
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.parentNode.removeChild(notification);
-            }
-        }, 5000);
+        console.log(`[${EXTENSION_NAME}] Settings UI initialized. Use Settings → StableQueue Integration for full configuration.`);
     }
 
-    // Context menu handlers (simple forwarding to Python)
-    function registerContextMenuHandlers() {
-        if (typeof gradioApp === 'undefined') {
-            setTimeout(registerContextMenuHandlers, 1000);
-            return;
-        }
-        
-        window.stablequeue_send_single = function(params) {
-            const serverAlias = getSelectedServer();
-            if (!serverAlias) {
-                params.notification = { text: 'No server selected in StableQueue tab. Please select a server first.', type: 'error' };
-                return params;
-            }
-            
-            // Forward to Python backend
-            fetch('/stablequeue/context_menu_queue', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    context_data: params,
-                    server_alias: serverAlias,
-                    job_type: 'single'
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    params.notification = { text: data.message, type: 'success' };
-                } else {
-                    params.notification = { text: `Error: ${data.message || 'Unknown error'}`, type: 'error' };
-                }
-            })
-            .catch(error => {
-                console.error(`[${EXTENSION_NAME}] Error:`, error);
-                params.notification = { text: `Connection error: ${error.message}`, type: 'error' };
-            });
-            
-            return params;
-        };
-        
-        window.stablequeue_send_bulk = function(params) {
-            const serverAlias = getSelectedServer();
-            if (!serverAlias) {
-                params.notification = { text: 'No server selected in StableQueue tab. Please select a server first.', type: 'error' };
-                return params;
-            }
-            
-            // Forward to Python backend
-            fetch('/stablequeue/context_menu_queue', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    context_data: params,
-                    server_alias: serverAlias,
-                    job_type: 'bulk'
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    params.notification = { text: data.message, type: 'success' };
-                } else {
-                    params.notification = { text: `Error: ${data.message || 'Unknown error'}`, type: 'error' };
-                }
-            })
-            .catch(error => {
-                console.error(`[${EXTENSION_NAME}] Error:`, error);
-                params.notification = { text: `Connection error: ${error.message}`, type: 'error' };
-            });
-            
-            return params;
-        };
-        
-        console.log(`[${EXTENSION_NAME}] Context menu handlers registered`);
-    }
-
-    // Initialize when DOM is ready
+    // Start initialization when page loads
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initialize);
+        document.addEventListener('DOMContentLoaded', init);
     } else {
-        initialize();
+        init();
     }
 
-    function initialize() {
-        console.log(`[${EXTENSION_NAME}] Initializing UI...`);
-        addQueueButtons();
-        registerContextMenuHandlers();
-    }
-
-    // Debug function to inspect dropdown structure
-    window.stablequeue_debug_dropdown = function() {
-        const dropdown = document.querySelector('#stablequeue_server_dropdown');
-        if (!dropdown) {
-            console.log('Dropdown not found');
-            return;
-        }
-        
-        console.log('Dropdown element:', dropdown);
-        console.log('Dropdown HTML:', dropdown.outerHTML);
-        console.log('Dropdown value:', dropdown.value);
-        console.log('All inputs inside dropdown:', dropdown.querySelectorAll('input'));
-        console.log('All selects inside dropdown:', dropdown.querySelectorAll('select'));
-        
-        const inputs = dropdown.querySelectorAll('input');
-        inputs.forEach((input, i) => {
-            console.log(`Input ${i}:`, input, 'value:', input.value, 'type:', input.type);
-        });
-        
-        return dropdown;
-    };
-
+    console.log(`[${EXTENSION_NAME}] Script loaded - settings management only`);
 })(); 
