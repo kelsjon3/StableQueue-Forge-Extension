@@ -1,5 +1,6 @@
 // StableQueue Forge Extension - JavaScript UI Only
-// Python AlwaysOnScript handles all parameter capture and processing
+// Python AlwaysOnScript handles all parameter capture and processing via process() hook
+// Queue buttons work through Gradio's native event system, NOT artificial button triggering
 
 (function() {
     'use strict';
@@ -7,16 +8,7 @@
     const EXTENSION_NAME = 'StableQueue';
     
     console.log(`[${EXTENSION_NAME}] JavaScript UI loading...`);
-
-    // Phase 2: No longer need to add buttons via JavaScript
-    // Queue buttons are now integrated directly via Gradio in the Python Script.ui() method
-    function addQueueButtons() {
-        console.log(`[${EXTENSION_NAME}] Queue buttons are now integrated via Gradio - no JavaScript DOM manipulation needed`);
-    }
-
-    // Phase 2: Queue functionality now handled entirely by Python Gradio integration
-    // No need for JavaScript queue functions or server selection logic
-    // No need for generation triggers - single click queue buttons handle everything directly
+    console.log(`[${EXTENSION_NAME}] Using research-backed approach: queue buttons -> Gradio native flow -> process() hook`);
 
     // Simple notification system
     function showNotification(message, type) {
@@ -55,19 +47,16 @@
         }, 5000);
     }
 
-    // Phase 2: Context menu functionality preserved but simplified  
-    // (Still uses the old approach for now - can be enhanced later)
+    // Context menu functionality (preserved for compatibility)
     function registerContextMenuHandlers() {
         if (typeof gradioApp === 'undefined') {
             setTimeout(registerContextMenuHandlers, 1000);
             return;
         }
         
-        // Note: Context menu still uses the old server selection approach
-        // This could be enhanced in Phase 3 to integrate with the new Gradio UI
+        // Context menu handlers for right-click queue functionality
         window.stablequeue_send_single = function(params) {
-            // Use StableQueue tab server selection for context menu
-            // For now, just forward to Python backend
+            console.log(`[${EXTENSION_NAME}] Context menu: single queue request`);
             fetch('/stablequeue/context_menu_queue', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -80,13 +69,16 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
+                    showNotification(data.message, 'success');
                     params.notification = { text: data.message, type: 'success' };
                 } else {
+                    showNotification(`Error: ${data.message || 'Unknown error'}`, 'error');
                     params.notification = { text: `Error: ${data.message || 'Unknown error'}`, type: 'error' };
                 }
             })
             .catch(error => {
-                console.error(`[${EXTENSION_NAME}] Error:`, error);
+                console.error(`[${EXTENSION_NAME}] Context menu error:`, error);
+                showNotification(`Connection error: ${error.message}`, 'error');
                 params.notification = { text: `Connection error: ${error.message}`, type: 'error' };
             });
             
@@ -94,7 +86,7 @@
         };
         
         window.stablequeue_send_bulk = function(params) {
-            // Use StableQueue tab server selection for context menu
+            console.log(`[${EXTENSION_NAME}] Context menu: bulk queue request`);
             fetch('/stablequeue/context_menu_queue', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -107,20 +99,23 @@
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
+                    showNotification(data.message, 'success');
                     params.notification = { text: data.message, type: 'success' };
                 } else {
+                    showNotification(`Error: ${data.message || 'Unknown error'}`, 'error');
                     params.notification = { text: `Error: ${data.message || 'Unknown error'}`, type: 'error' };
                 }
             })
             .catch(error => {
-                console.error(`[${EXTENSION_NAME}] Error:`, error);
+                console.error(`[${EXTENSION_NAME}] Context menu error:`, error);
+                showNotification(`Connection error: ${error.message}`, 'error');
                 params.notification = { text: `Connection error: ${error.message}`, type: 'error' };
             });
             
             return params;
         };
         
-        console.log(`[${EXTENSION_NAME}] Context menu handlers registered (simplified)`);
+        console.log(`[${EXTENSION_NAME}] Context menu handlers registered`);
     }
 
     // Initialize when DOM is ready
@@ -132,30 +127,8 @@
 
     function initialize() {
         console.log(`[${EXTENSION_NAME}] Initializing UI...`);
-        addQueueButtons();
+        console.log(`[${EXTENSION_NAME}] Queue buttons use Gradio native flow - NO artificial triggering`);
         registerContextMenuHandlers();
     }
-
-    // Debug function to inspect dropdown structure
-    window.stablequeue_debug_dropdown = function() {
-        const dropdown = document.querySelector('#stablequeue_server_dropdown');
-        if (!dropdown) {
-            console.log('Dropdown not found');
-            return;
-        }
-        
-        console.log('Dropdown element:', dropdown);
-        console.log('Dropdown HTML:', dropdown.outerHTML);
-        console.log('Dropdown value:', dropdown.value);
-        console.log('All inputs inside dropdown:', dropdown.querySelectorAll('input'));
-        console.log('All selects inside dropdown:', dropdown.querySelectorAll('select'));
-        
-        const inputs = dropdown.querySelectorAll('input');
-        inputs.forEach((input, i) => {
-            console.log(`Input ${i}:`, input, 'value:', input.value, 'type:', input.type);
-        });
-        
-        return dropdown;
-    };
 
 })(); 
